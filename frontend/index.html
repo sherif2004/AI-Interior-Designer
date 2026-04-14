@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Interior Designer — Stateful Room Layout</title>
+  <meta name="description" content="Design your room in real time using natural language commands. AI-powered furniture placement with 3D visualization." />
+  <link rel="icon" href="data:," />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ═══════════════ HEADER ═══════════════ -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="brand-icon">🏠</div>
+      <div class="brand-text">
+        <h1 class="brand-title">AI Interior Designer</h1>
+        <span class="brand-subtitle">Powered by LangGraph + OpenRouter</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-toggle-view" class="btn btn-ghost" title="Toggle 2D/3D view">
+        <span id="view-label">3D View</span>
+      </button>
+      <button id="btn-reset" class="btn btn-danger" title="Reset room">
+        🔄 Reset Room
+      </button>
+      <div class="connection-badge" id="ws-status">
+        <span class="dot dot-connecting"></span>
+        <span id="ws-label">Connecting…</span>
+      </div>
+      <div class="connection-badge" id="llm-status" style="margin-left: 10px;" title="LLM Connection Status">
+        <span class="dot dot-connecting" id="llm-dot"></span>
+        <span id="llm-label">LLM...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════ LAYOUT ═══════════════ -->
+  <div class="app-layout">
+
+    <!-- ── LEFT PANEL: Chat ── -->
+    <aside class="chat-panel" id="chat-panel">
+      <div class="panel-header">
+        <h2 class="panel-title">Design Assistant</h2>
+        <span class="object-count" id="object-count">0 items</span>
+      </div>
+
+      <!-- Quick command chips -->
+      <div class="quick-commands" id="quick-commands">
+        <span class="chip-label">Try:</span>
+        <button class="chip" data-cmd="Add a bed in the corner">Add bed</button>
+        <button class="chip" data-cmd="Add a sofa near the wall">Add sofa</button>
+        <button class="chip" data-cmd="Add a desk near the window">Add desk</button>
+        <button class="chip" data-cmd="Move it left">Move left</button>
+        <button class="chip" data-cmd="Rotate the last item">Rotate</button>
+      </div>
+
+      <!-- Chat history -->
+      <div class="chat-history" id="chat-history">
+        <div class="chat-message assistant">
+          <div class="avatar">🤖</div>
+          <div class="bubble">
+            Welcome! Describe what you'd like to add to your room.<br/>
+            Try: <em>"Add a bed in the corner"</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input area -->
+      <div class="chat-input-area">
+        <div class="input-wrapper">
+          <input
+            type="text"
+            id="command-input"
+            class="command-input"
+            placeholder="e.g. Add a sofa near the north wall…"
+            autocomplete="off"
+            autofocus
+          />
+          <button id="send-btn" class="send-btn" title="Send command">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="22" y1="2" x2="11" y2="13"/>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+        <div class="input-hint">Press <kbd>Enter</kbd> to send</div>
+      </div>
+    </aside>
+
+    <!-- ── MAIN: 3D Viewer ── -->
+    <main class="viewer-container" id="viewer-container">
+      <!-- Three.js canvas mounts here -->
+      <canvas id="three-canvas"></canvas>
+
+      <!-- 2D overlay canvas -->
+      <canvas id="canvas-2d" style="display:none;"></canvas>
+
+      <!-- Camera controls hint -->
+      <div class="controls-hint" id="controls-hint">
+        <span>🖱️ Orbit</span>
+        <span>⚙️ Scroll zoom</span>
+        <span>🤚 Right-drag pan</span>
+      </div>
+
+      <!-- Loading overlay -->
+      <div class="loading-overlay" id="loading-overlay" style="display:none;">
+        <div class="spinner"></div>
+        <p class="loading-text">AI is thinking…</p>
+      </div>
+
+      <!-- Room stats bar -->
+      <div class="stats-bar" id="stats-bar">
+        <div class="stat">
+          <span class="stat-label">Room</span>
+          <span class="stat-value" id="stat-room">10 × 8 m</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Furniture</span>
+          <span class="stat-value" id="stat-objects">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Last Action</span>
+          <span class="stat-value" id="stat-last">—</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- ── RIGHT PANEL: Inventory ── -->
+    <aside class="inventory-panel" id="inventory-panel">
+      <div class="panel-header">
+        <h2 class="panel-title">Room Objects</h2>
+      </div>
+      <div class="inventory-list" id="inventory-list">
+        <p class="empty-inventory">No furniture placed yet.</p>
+      </div>
+
+      <div class="catalog-section">
+        <div class="panel-header" style="margin-bottom:8px;">
+          <h2 class="panel-title">Furniture Catalog</h2>
+        </div>
+        <div class="catalog-grid" id="catalog-grid">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Scripts -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

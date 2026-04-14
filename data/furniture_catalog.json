@@ -1,0 +1,121 @@
+{
+  "bed": {
+    "size": [2.0, 2.0],
+    "color": "#6B5B95",
+    "height": 0.5,
+    "constraints": ["corner_preferred", "against_wall"],
+    "description": "Double bed"
+  },
+  "single_bed": {
+    "size": [1.0, 2.0],
+    "color": "#8B6DB5",
+    "height": 0.5,
+    "constraints": ["against_wall"],
+    "description": "Single bed"
+  },
+  "nightstand": {
+    "size": [0.5, 0.5],
+    "color": "#A0845C",
+    "height": 0.6,
+    "constraints": ["next_to_bed"],
+    "description": "Bedside table"
+  },
+  "wardrobe": {
+    "size": [1.5, 0.6],
+    "color": "#5C4A3A",
+    "height": 2.0,
+    "constraints": ["against_wall"],
+    "description": "Wardrobe / closet"
+  },
+  "dresser": {
+    "size": [1.0, 0.5],
+    "color": "#8B7355",
+    "height": 0.9,
+    "constraints": ["against_wall"],
+    "description": "Chest of drawers"
+  },
+  "sofa": {
+    "size": [2.5, 0.9],
+    "color": "#4A7FA5",
+    "height": 0.8,
+    "constraints": ["against_wall"],
+    "description": "3-seater sofa"
+  },
+  "armchair": {
+    "size": [0.9, 0.9],
+    "color": "#5B8DB8",
+    "height": 0.9,
+    "constraints": [],
+    "description": "Armchair"
+  },
+  "coffee_table": {
+    "size": [1.0, 0.6],
+    "color": "#A0845C",
+    "height": 0.45,
+    "constraints": ["in_front_of_sofa"],
+    "description": "Coffee table"
+  },
+  "tv_stand": {
+    "size": [1.5, 0.4],
+    "color": "#3A3A3A",
+    "height": 0.5,
+    "constraints": ["against_wall"],
+    "description": "TV unit / media console"
+  },
+  "dining_table": {
+    "size": [1.6, 0.9],
+    "color": "#8B6914",
+    "height": 0.75,
+    "constraints": ["center_preferred"],
+    "description": "Dining table"
+  },
+  "chair": {
+    "size": [0.5, 0.5],
+    "color": "#A0845C",
+    "height": 0.85,
+    "constraints": [],
+    "description": "Dining chair"
+  },
+  "desk": {
+    "size": [1.4, 0.7],
+    "color": "#6B8E6B",
+    "height": 0.75,
+    "constraints": ["against_wall", "near_window_preferred"],
+    "description": "Writing / computer desk"
+  },
+  "office_chair": {
+    "size": [0.6, 0.6],
+    "color": "#2C2C2C",
+    "height": 1.0,
+    "constraints": [],
+    "description": "Office chair"
+  },
+  "bookshelf": {
+    "size": [0.8, 0.3],
+    "color": "#8B4513",
+    "height": 1.8,
+    "constraints": ["against_wall"],
+    "description": "Bookcase"
+  },
+  "lamp": {
+    "size": [0.3, 0.3],
+    "color": "#F5C842",
+    "height": 1.5,
+    "constraints": [],
+    "description": "Floor lamp"
+  },
+  "plant": {
+    "size": [0.4, 0.4],
+    "color": "#228B22",
+    "height": 1.0,
+    "constraints": [],
+    "description": "Indoor plant"
+  },
+  "rug": {
+    "size": [2.0, 1.5],
+    "color": "#C17E6A",
+    "height": 0.02,
+    "constraints": [],
+    "description": "Area rug"
+  }
+}

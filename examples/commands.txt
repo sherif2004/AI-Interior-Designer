@@ -1,0 +1,27 @@
+# AI Interior Designer — Example Commands
+# Run these in sequence to test the full system
+
+# Bedroom setup
+Add a bed in the corner
+Add a nightstand next to it
+Add a wardrobe against the left wall
+Add a dresser near the window
+
+# Move and adjust
+Move the bed left
+Rotate the wardrobe
+Move the nightstand closer to the bed
+
+# Living room elements
+Add a sofa near the wall
+Add a coffee table in front of the sofa
+Add a TV stand across from the sofa
+Add an armchair in the corner
+
+# Workspace
+Add a desk near the window
+Add a bookshelf against the wall
+
+# Cleanup
+Delete the armchair
+Reset

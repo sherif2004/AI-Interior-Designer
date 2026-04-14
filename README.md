@@ -285,38 +285,30 @@ ai-interior-designer/
 ### 1. Clone repo
 
 ```bash
-git clone https://github.com/your-username/ai-interior-designer.git
-cd ai-interior-designer
+git clone https://github.com/sherif2004/AI-Interior-Designer.git
+cd AI-Interior-Designer
 ```
 
----
+### 2. Configure the LLM
 
-### 2. Install dependencies
-
+Duplicate the environment example file:
 ```bash
-pip install -r requirements.txt
+cp backend/.env.example backend/.env
+```
+Inside `.env`, ensure you insert your OpenRouter API key and desired model (e.g. DeepSeek or Claude).
+```env
+OPENROUTER_API_KEY=sk-or-v1-your-key-here
+OPENROUTER_MODEL=deepseek/deepseek-chat
 ```
 
----
+### 3. Install & Launch (Windows)
 
-### 3. Run backend
+We use an automated `start.bat` launcher that will use your local Anaconda Python environment:
+1. Double click `start.bat`
+2. Open your web browser to `http://localhost:8000`
+3. Enjoy the AI Assistant!
 
-```bash
-python backend/api/server.py
-```
-
----
-
-### 4. Run frontend
-
-```bash
-npm install
-npm run dev
-```
-
----
-
-## 🧪 Example Interaction
+*(Note: The FastAPI backend automatically serves the Three.js frontend so you don't need a standalone JS server!)*
 
 ### Step 1
 
