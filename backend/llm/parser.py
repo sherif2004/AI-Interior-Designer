@@ -5,15 +5,29 @@ import json
 import re
 from typing import Optional
 
-VALID_TYPES = {"ADD", "MOVE", "ROTATE", "DELETE", "RESET", "ERROR"}
+VALID_TYPES = {
+    "ADD", "MOVE", "ROTATE", "DELETE", "RESET", "ERROR",
+    "SET_WALL_STYLE", "SET_FLOOR_STYLE", "SET_ROOM_STYLE", "GENERATE_LAYOUT",
+    "SET_ROOM_DIMENSIONS", "ADD_WINDOW", "ADD_DOOR", "SAVE_PROJECT", "LOAD_PROJECT", "NEW_PROJECT",
+}
 
 REQUIRED_FIELDS = {
-    "ADD":    ["object", "constraints"],
-    "MOVE":   ["target", "direction"],
-    "ROTATE": ["target", "degrees"],
-    "DELETE": ["target"],
-    "RESET":  [],
-    "ERROR":  ["reason"],
+    "ADD":             ["object", "constraints"],
+    "MOVE":            ["target", "direction"],
+    "ROTATE":          ["target", "degrees"],
+    "DELETE":          ["target"],
+    "RESET":           [],
+    "SET_WALL_STYLE":  [],
+    "SET_FLOOR_STYLE": [],
+    "SET_ROOM_STYLE":    ["theme"],
+    "GENERATE_LAYOUT":   ["room_type"],
+    "SET_ROOM_DIMENSIONS": [],
+    "ADD_WINDOW":        [],
+    "ADD_DOOR":          [],
+    "SAVE_PROJECT":      [],
+    "LOAD_PROJECT":      ["project_id"],
+    "NEW_PROJECT":       [],
+    "ERROR":             ["reason"],
 }
 
 
@@ -99,5 +113,42 @@ def parse_action(llm_response: str) -> dict:
             action["degrees"] = int(action.get("degrees", 90))
         except (TypeError, ValueError):
             action["degrees"] = 90
+
+    if action_type in ("SET_WALL_STYLE", "SET_FLOOR_STYLE"):
+        if "color" in action and isinstance(action["color"], str):
+            action["color"] = action["color"].lower().strip().replace(" ", "_")
+        if "material" in action and isinstance(action["material"], str):
+            action["material"] = action["material"].lower().strip().replace(" ", "_")
+        if "theme" in action and isinstance(action["theme"], str):
+            action["theme"] = action["theme"].lower().strip().replace(" ", "_")
+
+    if action_type in ("SET_ROOM_STYLE", "GENERATE_LAYOUT"):
+        if "theme" in action and isinstance(action["theme"], str):
+            action["theme"] = action["theme"].lower().strip().replace(" ", "_")
+        if "room_type" in action and isinstance(action["room_type"], str):
+            action["room_type"] = action["room_type"].lower().strip().replace(" ", "_")
+
+    if action_type == "SET_ROOM_DIMENSIONS":
+        for field in ("width", "height", "ceiling_height"):
+            if field in action:
+                try:
+                    action[field] = float(action[field])
+                except (TypeError, ValueError):
+                    action.pop(field, None)
+
+    if action_type in ("ADD_WINDOW", "ADD_DOOR"):
+        if "wall" in action and isinstance(action["wall"], str):
+            action["wall"] = action["wall"].lower().strip()
+        for field in ("position", "width"):
+            if field in action:
+                try:
+                    action[field] = float(action[field])
+                except (TypeError, ValueError):
+                    action.pop(field, None)
+
+    if action_type in ("SAVE_PROJECT", "LOAD_PROJECT", "NEW_PROJECT"):
+        for field in ("project_id", "project_name"):
+            if field in action and isinstance(action[field], str):
+                action[field] = action[field].strip().replace(" ", "_") if field == "project_id" else action[field].strip()
 
     return action

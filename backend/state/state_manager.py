@@ -6,8 +6,11 @@ from typing import TypedDict, Optional, Any
 
 
 class RoomState(TypedDict, total=False):
+    # Project metadata
+    project: dict               # {id, name}
+
     # Core room geometry
-    room: dict                  # {width, height, wall_thickness, doors, windows}
+    room: dict                  # {width, height, wall_thickness, doors, windows, wall_style, floor_style, theme}
 
     # All currently placed furniture objects
     objects: list[dict]         # [{id, type, x, z, w, d, rotation, color, height}]
@@ -37,6 +40,10 @@ class RoomState(TypedDict, total=False):
 def default_state(room_width: float = 10.0, room_height: float = 8.0) -> RoomState:
     """Return an initial empty room state."""
     return RoomState(
+        project={
+            "id": "default_project",
+            "name": "My Home Project",
+        },
         room={
             "width": room_width,
             "height": room_height,
@@ -46,6 +53,23 @@ def default_state(room_width: float = 10.0, room_height: float = 8.0) -> RoomSta
                 {"wall": "north", "position": 0.3, "width": 1.2},
                 {"wall": "east",  "position": 0.6, "width": 1.0},
             ],
+            "wall_style": {
+                "name": "warm white",
+                "color": "#f3efe8",
+                "material": "paint",
+                "label": "warm white paint",
+            },
+            "floor_style": {
+                "name": "oak",
+                "color": "#b08968",
+                "material": "wood",
+                "label": "oak wood",
+            },
+            "theme": "modern",
+            "room_type": "generic",
+            "ceiling_height": 3.0,
+            "project_id": "default_project",
+            "project_name": "My Home Project",
         },
         objects=[],
         history=[],

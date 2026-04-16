@@ -10,7 +10,6 @@ from typing import Literal
 from dotenv import load_dotenv
 
 from langgraph.graph import StateGraph, END, START
-import requests
 import json
 
 from backend.state.state_manager import RoomState, default_state
@@ -20,6 +19,19 @@ from backend.actions.add import handle_add
 from backend.actions.move import handle_move
 from backend.actions.rotate import handle_rotate
 from backend.actions.delete import handle_delete
+from backend.actions.style import (
+    handle_set_wall_style,
+    handle_set_floor_style,
+    handle_set_room_style,
+    handle_generate_layout,
+)
+from backend.actions.project import (
+    handle_set_room_dimensions,
+    handle_add_opening,
+    handle_save_project,
+    handle_load_project,
+    handle_new_project,
+)
 
 # Evaluate path dynamically to backend/.env
 dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -135,6 +147,36 @@ def action_dispatcher_node(state: RoomState) -> RoomState:
             "message": "🔄 Room has been reset. Starting fresh!",
             "history": state.get("history", []),
         }
+
+    elif action_type == "SET_WALL_STYLE":
+        return handle_set_wall_style(state, action)
+
+    elif action_type == "SET_FLOOR_STYLE":
+        return handle_set_floor_style(state, action)
+
+    elif action_type == "SET_ROOM_STYLE":
+        return handle_set_room_style(state, action)
+
+    elif action_type == "GENERATE_LAYOUT":
+        return handle_generate_layout(state, action)
+
+    elif action_type == "SET_ROOM_DIMENSIONS":
+        return handle_set_room_dimensions(state, action)
+
+    elif action_type == "ADD_WINDOW":
+        return handle_add_opening(state, action, "window")
+
+    elif action_type == "ADD_DOOR":
+        return handle_add_opening(state, action, "door")
+
+    elif action_type == "SAVE_PROJECT":
+        return handle_save_project(state, action)
+
+    elif action_type == "LOAD_PROJECT":
+        return handle_load_project(state, action)
+
+    elif action_type == "NEW_PROJECT":
+        return handle_new_project(state, action)
 
     elif action_type == "ERROR":
         reason = action.get("reason", "Unknown error")

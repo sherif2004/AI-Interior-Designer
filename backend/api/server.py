@@ -19,6 +19,7 @@ load_dotenv(dotenv_path)
 from backend.state.state_manager import RoomState, default_state
 from backend.graph.designer_graph import run_command
 from backend.environment.objects import FURNITURE_CATALOG
+from backend.storage.project_store import list_projects
 
 # ─────────────────────── App-level state ────────────────────────────────────
 
@@ -90,6 +91,7 @@ class ResetRequest(BaseModel):
 
 def _state_to_dict(state: RoomState) -> dict:
     return {
+        "project": state.get("project", {}),
         "room": state.get("room", {}),
         "objects": state.get("objects", []),
         "history": state.get("history", []),
@@ -143,6 +145,12 @@ async def get_state():
 async def get_catalog():
     """Return the furniture catalog."""
     return FURNITURE_CATALOG
+
+
+@app.get("/projects")
+async def get_projects():
+    """Return saved projects."""
+    return {"projects": list_projects()}
 
 
 @app.post("/command")

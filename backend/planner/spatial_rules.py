@@ -81,6 +81,14 @@ def resolve_placement(
         if ref:
             return _in_front_of(ref, obj_w, obj_d, rw, rh, margin)
 
+    # ---- RELATIVE: cardinal side of object ----
+    for prefix in ("north_of:", "south_of:", "east_of:", "west_of:"):
+        if placement.startswith(prefix):
+            ref_id = placement.split(":", 1)[-1].replace("_", " ")
+            ref = _find_object(objects, reference_id or ref_id)
+            if ref:
+                return _cardinal_relative_position(prefix[:-1], ref, obj_w, obj_d, rw, rh, margin)
+
     # ---- AUTO / FALLBACK ----
     return _auto_place(rw, rh, obj_w, obj_d, objects, margin)
 
@@ -181,6 +189,26 @@ def _in_front_of(ref: dict, w: float, d: float, rw: float, rh: float, margin: fl
         x = ref["x"] + ref["w"] / 2 - w / 2
         z = ref["z"] - d - gap
     else:  # facing west
+        x = ref["x"] - w - gap
+        z = ref["z"] + ref["d"] / 2 - d / 2
+
+    x = max(margin, min(x, rw - margin - w))
+    z = max(margin, min(z, rh - margin - d))
+    return (x, z)
+
+
+def _cardinal_relative_position(direction: str, ref: dict, w: float, d: float, rw: float, rh: float, margin: float) -> tuple[float, float]:
+    gap = 0.2
+    if direction == "north_of":
+        x = ref["x"] + ref["w"] / 2 - w / 2
+        z = ref["z"] - d - gap
+    elif direction == "south_of":
+        x = ref["x"] + ref["w"] / 2 - w / 2
+        z = ref["z"] + ref["d"] + gap
+    elif direction == "east_of":
+        x = ref["x"] + ref["w"] + gap
+        z = ref["z"] + ref["d"] / 2 - d / 2
+    else:
         x = ref["x"] - w - gap
         z = ref["z"] + ref["d"] / 2 - d / 2
 

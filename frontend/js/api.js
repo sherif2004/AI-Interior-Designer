@@ -40,6 +40,10 @@ export async function getCatalog() {
   return _get('/catalog');
 }
 
+export async function getProjects() {
+  return _get('/projects');
+}
+
 export async function deleteObject(objectId) {
   return _post('/command', { command: `Delete ${objectId}` });
 }

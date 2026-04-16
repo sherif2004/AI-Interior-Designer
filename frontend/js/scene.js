@@ -7,6 +7,8 @@ import { createFurnitureMesh } from './furniture.js';
 
 let renderer, scene, camera, controls;
 let floorMesh, wallMeshes = [], gridHelper;
+let openingMeshes = [];
+let floorMaterialRef = null;
 let furnitureMeshMap = {}; // id → THREE.Group
 
 const SCALE = 0.5; // 1 meter = 0.5 THREE units (for comfort)
@@ -98,21 +100,26 @@ export function buildRoom(roomData) {
   // Remove existing room meshes
   if (floorMesh) scene.remove(floorMesh);
   wallMeshes.forEach(m => scene.remove(m));
+  openingMeshes.forEach(m => scene.remove(m));
   if (gridHelper) scene.remove(gridHelper);
   wallMeshes = [];
+  openingMeshes = [];
 
   const rw = roomData.width * SCALE;
   const rh = roomData.height * SCALE;
-  const wallH = 1.5 * SCALE;
+  const wallH = (roomData.ceiling_height || 3.0) * SCALE;
   const wallT = 0.05;
+  const floorStyle = roomData.floor_style || {};
+  const wallStyle = roomData.wall_style || {};
 
   // Floor
   const floorGeo = new THREE.PlaneGeometry(rw, rh);
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x1a2240,
-    roughness: 0.9,
-    metalness: 0.0,
-  });
+  const floorMat = createSurfaceMaterial(
+    floorStyle.color || '#1a2240',
+    floorStyle.material || 'wood',
+    true,
+  );
+  floorMaterialRef = floorMat;
   floorMesh = new THREE.Mesh(floorGeo, floorMat);
   floorMesh.rotation.x = -Math.PI / 2;
   floorMesh.position.set(rw / 2, 0, rh / 2);
@@ -121,11 +128,17 @@ export function buildRoom(roomData) {
 
   // Grid
   gridHelper = new THREE.GridHelper(Math.max(rw, rh) + 2, Math.max(roomData.width, roomData.height) + 2, 0x1e2d55, 0x1e2d55);
+  gridHelper.material.opacity = 0.35;
+  gridHelper.material.transparent = true;
   gridHelper.position.set(rw / 2, 0.001, rh / 2);
   scene.add(gridHelper);
 
   // Walls (thin outlines)
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a3a6a, roughness: 0.8 });
+  const wallMat = createSurfaceMaterial(
+    wallStyle.color || '#2a3a6a',
+    wallStyle.material || 'paint',
+    false,
+  );
   const walls = [
     { pos: [rw / 2, wallH / 2, 0],  size: [rw, wallH, wallT] },          // north
     { pos: [rw / 2, wallH / 2, rh], size: [rw, wallH, wallT] },          // south
@@ -142,10 +155,90 @@ export function buildRoom(roomData) {
     wallMeshes.push(mesh);
   }
 
+  buildOpenings(roomData, rw, rh, wallH);
+
   // Reframe camera
   controls.target.set(rw / 2, 0, rh / 2);
-  camera.position.set(rw / 2, rw * 0.9, rh * 1.4);
+  camera.position.set(rw / 2, Math.max(rw, rh) * 0.9, rh * 1.4);
   controls.update();
+}
+
+function buildOpenings(roomData, rw, rh, wallH) {
+  const windows = roomData.windows || [];
+  const doors = roomData.doors || [];
+
+  for (const windowDef of windows) {
+    const mesh = buildOpeningMesh(windowDef, rw, rh, wallH, 0x87ceeb, 1.1, 0.08);
+    if (mesh) {
+      scene.add(mesh);
+      openingMeshes.push(mesh);
+    }
+  }
+
+  for (const doorDef of doors) {
+    const mesh = buildOpeningMesh(doorDef, rw, rh, wallH, 0x8b5a2b, 2.0, 0.12);
+    if (mesh) {
+      scene.add(mesh);
+      openingMeshes.push(mesh);
+    }
+  }
+}
+
+function buildOpeningMesh(def, rw, rh, wallH, color, heightMeters, thickness) {
+  const width = (def.width || 1.0) * SCALE;
+  const height = Math.min(wallH * 0.85, heightMeters * SCALE);
+  const geo = new THREE.BoxGeometry(width, height, thickness);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.05, transparent: color === 0x87ceeb, opacity: color === 0x87ceeb ? 0.55 : 1 });
+  const mesh = new THREE.Mesh(geo, mat);
+
+  const wall = String(def.wall || 'north').toLowerCase();
+  const pos = Math.min(0.95, Math.max(0.05, def.position || 0.5));
+  const y = color === 0x87ceeb ? wallH * 0.58 : height / 2;
+
+  if (wall === 'north') {
+    mesh.position.set(rw * pos, y, 0.03);
+  } else if (wall === 'south') {
+    mesh.position.set(rw * pos, y, rh - 0.03);
+  } else if (wall === 'west') {
+    mesh.rotation.y = Math.PI / 2;
+    mesh.position.set(0.03, y, rh * pos);
+  } else if (wall === 'east') {
+    mesh.rotation.y = Math.PI / 2;
+    mesh.position.set(rw - 0.03, y, rh * pos);
+  } else {
+    return null;
+  }
+
+  return mesh;
+}
+
+function createSurfaceMaterial(color, materialType, isFloor = false) {
+  const matType = String(materialType || '').toLowerCase();
+  const baseColor = new THREE.Color(color || (isFloor ? '#1a2240' : '#2a3a6a'));
+
+  let roughness = isFloor ? 0.85 : 0.9;
+  let metalness = 0.02;
+
+  if (matType.includes('marble') || matType.includes('stone')) {
+    roughness = 0.35;
+    metalness = 0.08;
+  } else if (matType.includes('tile')) {
+    roughness = 0.55;
+  } else if (matType.includes('wood')) {
+    roughness = 0.75;
+  } else if (matType.includes('concrete')) {
+    roughness = 0.95;
+  } else if (matType.includes('panel')) {
+    roughness = 0.7;
+  } else if (matType.includes('wallpaper')) {
+    roughness = 0.88;
+  }
+
+  return new THREE.MeshStandardMaterial({
+    color: baseColor,
+    roughness,
+    metalness,
+  });
 }
 
 /**

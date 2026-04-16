@@ -3,7 +3,7 @@
  */
 import { initScene, buildRoom, syncObjects, highlightObject } from './scene.js';
 import { FURNITURE_EMOJIS } from './furniture.js';
-import { sendCommand, resetRoom, getCatalog, createWebSocket, checkLLMStatus } from './api.js';
+import { sendCommand, resetRoom, getCatalog, getProjects, getState, createWebSocket, checkLLMStatus } from './api.js';
 
 // ─────────────────────── State ──────────────────────────────────────────────
 let currentState = null;
@@ -30,6 +30,15 @@ const catalogGrid   = document.getElementById('catalog-grid');
 const viewLabel     = document.getElementById('view-label');
 const btnToggleView = document.getElementById('btn-toggle-view');
 const btnReset      = document.getElementById('btn-reset');
+const styleTheme    = document.getElementById('style-theme');
+const styleWalls    = document.getElementById('style-walls');
+const styleFloor    = document.getElementById('style-floor');
+const projectNameEl = document.getElementById('project-name');
+const projectIdEl   = document.getElementById('project-id');
+const projectCeilEl = document.getElementById('project-ceiling');
+const projectListEl = document.getElementById('project-list');
+const btnSaveProject= document.getElementById('btn-save-project');
+const btnLoadProject= document.getElementById('btn-load-project');
 
 // ─────────────────────── Init ───────────────────────────────────────────────
 async function init() {
@@ -47,6 +56,17 @@ async function init() {
   // Check LLM status asynchronously
   checkLLM();
 
+  // Load saved projects list
+  refreshProjects();
+
+  // Prime initial state in case WebSocket is slow
+  try {
+    const state = await getState();
+    applyState(state);
+  } catch (e) {
+    console.warn('Could not load initial state:', e);
+  }
+
   // Connect WebSocket
   connectWS();
 
@@ -58,6 +78,8 @@ async function init() {
 
   btnToggleView.addEventListener('click', toggleView);
   btnReset.addEventListener('click', handleReset);
+  btnSaveProject.addEventListener('click', handleSaveProject);
+  btnLoadProject.addEventListener('click', handleLoadProject);
 
   // Quick command chips
   document.querySelectorAll('.chip').forEach(chip => {
@@ -136,6 +158,14 @@ function applyState(state) {
   // Update stats bar
   if (state.room) {
     statRoom.textContent = `${state.room.width} × ${state.room.height} m`;
+    styleTheme.textContent = (state.room.theme || 'custom').replace(/_/g, ' ');
+    styleWalls.textContent = state.room.wall_style?.label || 'default walls';
+    styleFloor.textContent = state.room.floor_style?.label || 'default floor';
+    projectCeilEl.textContent = `${(state.room.ceiling_height || 3.0).toFixed(1)}m`;
+  }
+  if (state.project) {
+    projectNameEl.textContent = state.project.name || 'My Home Project';
+    projectIdEl.textContent = state.project.id || 'default_project';
   }
   statObjects.textContent = (state.objects || []).length;
   const la = state.last_action;
@@ -147,6 +177,39 @@ function applyState(state) {
 
   // Update 2D if visible
   if (!is3D) render2D(state);
+}
+
+async function refreshProjects() {
+  try {
+    const result = await getProjects();
+    renderProjects(result.projects || []);
+  } catch (e) {
+    console.warn('Could not load projects:', e);
+  }
+}
+
+function renderProjects(projects) {
+  if (!projects.length) {
+    projectListEl.innerHTML = '<div class="project-list-desc">No saved projects yet.</div>';
+    return;
+  }
+
+  projectListEl.innerHTML = '';
+  for (const project of projects) {
+    const item = document.createElement('div');
+    item.className = 'project-list-item';
+    item.innerHTML = `
+      <div class="project-list-meta">
+        <div class="project-list-name">${project.name || project.id}</div>
+        <div class="project-list-desc">${(project.room_type || 'generic').replace(/_/g, ' ')} · ${(project.theme || 'custom').replace(/_/g, ' ')}</div>
+      </div>
+      <div class="project-value mono">${project.id}</div>`;
+    item.addEventListener('click', () => {
+      commandInput.value = `Load project ${project.id}`;
+      commandInput.focus();
+    });
+    projectListEl.appendChild(item);
+  }
 }
 
 // ─────────────────────── Command handling ───────────────────────────────────
@@ -175,7 +238,7 @@ async function handleSend() {
     appendMessage('assistant', msg, isError ? 'error' : 'success');
 
     // State is already applied via WebSocket, but apply directly if needed
-    if (result.state && !ws?.readyState === WebSocket.OPEN) {
+    if (result.state && (!ws || ws.readyState !== WebSocket.OPEN)) {
       applyState(result.state);
     }
   } catch (err) {
@@ -191,6 +254,22 @@ async function handleSend() {
     sendBtn.disabled = false;
     commandInput.focus();
   }
+}
+
+async function handleSaveProject() {
+  const name = prompt('Project name?', currentState?.project?.name || 'My Home Project');
+  if (!name) return;
+  commandInput.value = `Save this as ${name}`;
+  await handleSend();
+  refreshProjects();
+}
+
+async function handleLoadProject() {
+  const id = prompt('Project ID to load?', currentState?.project?.id || 'default_project');
+  if (!id) return;
+  commandInput.value = `Load project ${id}`;
+  await handleSend();
+  refreshProjects();
 }
 
 async function handleReset() {
@@ -357,9 +436,12 @@ function render2D(state) {
   ctx.fillStyle = '#080d1c';
   ctx.fillRect(0, 0, canvas2d.width, canvas2d.height);
 
+  const floorStyle = state.room.floor_style || {};
+  const wallStyle = state.room.wall_style || {};
+
   // Room floor
-  ctx.fillStyle = '#1a2240';
-  ctx.strokeStyle = '#2a3a6a';
+  ctx.fillStyle = floorStyle.color || '#1a2240';
+  ctx.strokeStyle = wallStyle.color || '#2a3a6a';
   ctx.lineWidth = 2;
   roundRect(ctx, ox, oy, rw * scale, rh * scale, 8);
   ctx.fill();
@@ -380,6 +462,9 @@ function render2D(state) {
     ctx.lineTo(ox + rw * scale, oy + z * scale);
     ctx.stroke();
   }
+
+  // Openings
+  drawOpenings2D(ctx, state.room, ox, oy, scale, rw, rh);
 
   // Furniture
   for (const obj of state.objects || []) {
@@ -408,6 +493,16 @@ function render2D(state) {
     ctx.restore();
   }
 
+  // Room style label
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font = '12px Inter, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    `${(state.room.theme || 'custom').replace(/_/g, ' ')} · ${state.room.wall_style?.label || 'default walls'} · ${state.room.floor_style?.label || 'default floor'}`,
+    ox,
+    oy - 16,
+  );
+
   // Dimension labels
   ctx.fillStyle = '#4b5980';
   ctx.font = '11px JetBrains Mono, monospace';
@@ -418,6 +513,26 @@ function render2D(state) {
   ctx.rotate(-Math.PI / 2);
   ctx.fillText(`${rh}m`, 0, 0);
   ctx.restore();
+}
+
+function drawOpenings2D(ctx, room, ox, oy, scale, rw, rh) {
+  const windows = room.windows || [];
+  const doors = room.doors || [];
+
+  for (const win of windows) drawOpening2D(ctx, win, ox, oy, scale, rw, rh, '#87ceeb');
+  for (const door of doors) drawOpening2D(ctx, door, ox, oy, scale, rw, rh, '#8b5a2b');
+}
+
+function drawOpening2D(ctx, def, ox, oy, scale, rw, rh, color) {
+  const width = (def.width || 1.0) * scale;
+  const wall = String(def.wall || 'north').toLowerCase();
+  const pos = Math.min(0.95, Math.max(0.05, def.position || 0.5));
+  ctx.fillStyle = color;
+
+  if (wall === 'north') ctx.fillRect(ox + rw * scale * pos - width / 2, oy - 3, width, 6);
+  else if (wall === 'south') ctx.fillRect(ox + rw * scale * pos - width / 2, oy + rh * scale - 3, width, 6);
+  else if (wall === 'west') ctx.fillRect(ox - 3, oy + rh * scale * pos - width / 2, 6, width);
+  else if (wall === 'east') ctx.fillRect(ox + rw * scale - 3, oy + rh * scale * pos - width / 2, 6, width);
 }
 
 function roundRect(ctx, x, y, w, h, r) {

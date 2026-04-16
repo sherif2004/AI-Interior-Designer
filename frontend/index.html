@@ -50,13 +50,33 @@
       </div>
 
       <!-- Quick command chips -->
+      <div class="project-panel" id="project-panel">
+        <div class="project-row">
+          <span class="project-label">Project</span>
+          <span class="project-value" id="project-name">My Home Project</span>
+        </div>
+        <div class="project-row">
+          <span class="project-label">Project ID</span>
+          <span class="project-value mono" id="project-id">default_project</span>
+        </div>
+        <div class="project-row">
+          <span class="project-label">Ceiling</span>
+          <span class="project-value mono" id="project-ceiling">3.0m</span>
+        </div>
+        <div class="project-actions">
+          <button class="btn btn-ghost btn-small" id="btn-save-project">Save</button>
+          <button class="btn btn-ghost btn-small" id="btn-load-project">Load</button>
+        </div>
+        <div class="project-list" id="project-list"></div>
+      </div>
+
       <div class="quick-commands" id="quick-commands">
         <span class="chip-label">Try:</span>
-        <button class="chip" data-cmd="Add a bed in the corner">Add bed</button>
-        <button class="chip" data-cmd="Add a sofa near the wall">Add sofa</button>
-        <button class="chip" data-cmd="Add a desk near the window">Add desk</button>
-        <button class="chip" data-cmd="Move it left">Move left</button>
-        <button class="chip" data-cmd="Rotate the last item">Rotate</button>
+        <button class="chip" data-cmd="Create a cozy bedroom">Cozy bedroom</button>
+        <button class="chip" data-cmd="Add a window on the north wall">Add window</button>
+        <button class="chip" data-cmd="Add a door on the east wall">Add door</button>
+        <button class="chip" data-cmd="Make the room 6 by 4 meters">Resize room</button>
+        <button class="chip" data-cmd="Save this as family home">Save project</button>
       </div>
 
       <!-- Chat history -->
@@ -111,6 +131,12 @@
       <div class="loading-overlay" id="loading-overlay" style="display:none;">
         <div class="spinner"></div>
         <p class="loading-text">AI is thinking…</p>
+      </div>
+
+      <div class="room-style-panel" id="room-style-panel">
+        <div class="style-chip"><span class="style-chip-label">Theme</span><span class="style-chip-value" id="style-theme">Modern</span></div>
+        <div class="style-chip"><span class="style-chip-label">Walls</span><span class="style-chip-value" id="style-walls">Warm white paint</span></div>
+        <div class="style-chip"><span class="style-chip-label">Floor</span><span class="style-chip-value" id="style-floor">Oak wood</span></div>
       </div>
 
       <!-- Room stats bar -->

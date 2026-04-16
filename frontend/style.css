@@ -209,6 +209,93 @@ body {
   border: 1px solid rgba(124,58,237,0.2);
 }
 
+/* Project panel */
+.project-panel {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.project-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+  text-align: right;
+}
+
+.project-value.mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.project-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-small {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.project-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.project-list-item:hover {
+  border-color: var(--accent-purple);
+  background: rgba(124,58,237,0.12);
+}
+
+.project-list-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.project-list-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.project-list-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 /* Quick commands */
 .quick-commands {
   display: flex;
@@ -433,6 +520,44 @@ body {
   color: var(--text-muted);
   pointer-events: none;
   transition: opacity 0.5s;
+}
+
+/* Room style panel */
+.room-style-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 32px);
+  z-index: 20;
+}
+
+.style-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-sm);
+}
+
+.style-chip-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.style-chip-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 /* Loading overlay */
