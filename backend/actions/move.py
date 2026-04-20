@@ -15,7 +15,7 @@ def handle_move(state: RoomState, action: dict) -> RoomState:
     objects = list(state.get("objects", []))
     room = state["room"]
 
-    obj, idx = _resolve_target(target, objects, state.get("last_action", {}))
+    obj, idx = _resolve_target(target, objects, state.get("last_action", {}), state.get("selected_object_id", ""))
     if obj is None:
         return {**state, "error": f"Could not find object: '{target}'"}
 
@@ -33,15 +33,21 @@ def handle_move(state: RoomState, action: dict) -> RoomState:
         **state,
         "objects": objects,
         "last_action": {"type": "MOVE", "object_id": obj["id"]},
+        "selected_object_id": obj["id"],
         "message": f"↔️ Moved {obj['id']} {direction} by {amount}m to ({new_x:.1f}, {new_z:.1f}).",
         "error": None,
     }
 
 
-def _resolve_target(target: str, objects: list, last_action: dict):
+def _resolve_target(target: str, objects: list, last_action: dict, selected_object_id: str = ""):
     """Returns (object_dict, index) or (None, -1)."""
     if not objects:
         return None, -1
+
+    if target in ("selected", "it") and selected_object_id:
+        for i, o in enumerate(objects):
+            if o["id"] == selected_object_id:
+                return o, i
 
     if target == "last":
         last_id = last_action.get("object_id", "")

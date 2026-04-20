@@ -9,6 +9,10 @@ class RoomState(TypedDict, total=False):
     # Project metadata
     project: dict               # {id, name}
 
+    # Current UI/object selection context
+    selected_object_id: str
+    selected_product_id: str
+
     # Core room geometry
     room: dict                  # {width, height, wall_thickness, doors, windows, wall_style, floor_style, theme}
 
@@ -35,6 +39,12 @@ class RoomState(TypedDict, total=False):
 
     # How many times the LLM planner has been retried for this command
     retry_count: int
+
+    # Clearance warnings from the clearance checker (populated after every action)
+    clearance_warnings: list[dict]
+
+    # Accessibility score 0–100
+    accessibility_score: int
 
 
 def default_state(room_width: float = 10.0, room_height: float = 8.0) -> RoomState:
@@ -75,8 +85,12 @@ def default_state(room_width: float = 10.0, room_height: float = 8.0) -> RoomSta
         history=[],
         pending_action={},
         last_action={},
+        selected_object_id="",
+        selected_product_id="",
         message="Room is ready. What would you like to add?",
         error=None,
         user_command="",
         retry_count=0,
+        clearance_warnings=[],
+        accessibility_score=100,
     )

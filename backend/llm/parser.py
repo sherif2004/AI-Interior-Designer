@@ -9,6 +9,7 @@ VALID_TYPES = {
     "ADD", "MOVE", "ROTATE", "DELETE", "RESET", "ERROR",
     "SET_WALL_STYLE", "SET_FLOOR_STYLE", "SET_ROOM_STYLE", "GENERATE_LAYOUT",
     "SET_ROOM_DIMENSIONS", "ADD_WINDOW", "ADD_DOOR", "SAVE_PROJECT", "LOAD_PROJECT", "NEW_PROJECT",
+    "SELECT_OBJECT",
 }
 
 REQUIRED_FIELDS = {
@@ -27,6 +28,7 @@ REQUIRED_FIELDS = {
     "SAVE_PROJECT":      [],
     "LOAD_PROJECT":      ["project_id"],
     "NEW_PROJECT":       [],
+    "SELECT_OBJECT":     ["target"],
     "ERROR":             ["reason"],
 }
 
@@ -98,7 +100,7 @@ def parse_action(llm_response: str) -> dict:
         if "placement" not in action["constraints"]:
             action["constraints"]["placement"] = "auto"
 
-    if action_type in ("MOVE", "ROTATE", "DELETE"):
+    if action_type in ("MOVE", "ROTATE", "DELETE", "SELECT_OBJECT"):
         action["target"] = str(action["target"]).lower().strip()
 
     if action_type == "MOVE":

@@ -12,7 +12,7 @@ def handle_delete(state: RoomState, action: dict) -> RoomState:
     if not objects:
         return {**state, "error": "The room is already empty."}
 
-    obj, idx = _resolve_target(target, objects, state.get("last_action", {}))
+    obj, idx = _resolve_target(target, objects, state.get("last_action", {}), state.get("selected_object_id", ""))
     if obj is None:
         return {**state, "error": f"Could not find object to delete: '{target}'"}
 
@@ -22,15 +22,24 @@ def handle_delete(state: RoomState, action: dict) -> RoomState:
         **state,
         "objects": objects,
         "last_action": {"type": "DELETE", "object_id": obj["id"]},
+        "selected_object_id": "",
         "message": f"🗑️ Removed {obj['id']} from the room.",
         "error": None,
     }
 
 
-def _resolve_target(target, objects, last_action):
+def _resolve_target(target, objects, last_action, selected_object_id=""):
     if not objects:
         return None, -1
+    if target == "selected" and selected_object_id:
+        for i, o in enumerate(objects):
+            if o["id"] == selected_object_id:
+                return o, i
     if target in ("last", "it"):
+        if selected_object_id:
+            for i, o in enumerate(objects):
+                if o["id"] == selected_object_id:
+                    return o, i
         last_id = last_action.get("object_id", "")
         for i, o in enumerate(objects):
             if o["id"] == last_id:

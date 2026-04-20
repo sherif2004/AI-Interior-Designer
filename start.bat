@@ -22,5 +22,15 @@ echo.
 echo  Press Ctrl+C to stop.
 echo.
 
+:: Initialize IKEA Database if missing
+if not exist "data\ikea_catalog.db" (
+    echo.
+    echo  [*] Generating initial IKEA Product Database...
+    echo  [*] Fetching 'sofas' category as initial seed...
+    D:\anaconda\python.exe -m backend.scraper.run_scraper --category sofas
+    echo  [*] Database seeded successfully!
+    echo.
+)
+
 :: Start backend (serves frontend from /)
 D:\anaconda\python.exe -m uvicorn backend.api.server:app --reload --host 0.0.0.0 --port 8000

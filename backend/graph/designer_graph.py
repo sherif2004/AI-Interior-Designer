@@ -31,7 +31,9 @@ from backend.actions.project import (
     handle_save_project,
     handle_load_project,
     handle_new_project,
+    handle_select_object,
 )
+from backend.planner.clearance_checker import check_clearance, compute_accessibility_score
 
 # Evaluate path dynamically to backend/.env
 dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -178,6 +180,9 @@ def action_dispatcher_node(state: RoomState) -> RoomState:
     elif action_type == "NEW_PROJECT":
         return handle_new_project(state, action)
 
+    elif action_type == "SELECT_OBJECT":
+        return handle_select_object(state, action)
+
     elif action_type == "ERROR":
         reason = action.get("reason", "Unknown error")
         return {
@@ -187,6 +192,20 @@ def action_dispatcher_node(state: RoomState) -> RoomState:
         }
 
     return {**state, "error": f"Unhandled action type: {action_type}"}
+
+
+def clearance_check_node(state: RoomState) -> RoomState:
+    """
+    Node 3: Run clearance checks and compute accessibility score.
+    Runs after every successful action dispatch.
+    """
+    objects = state.get("objects", [])
+    room = state.get("room", {})
+    if not objects:
+        return {**state, "clearance_warnings": [], "accessibility_score": 100}
+    warnings = check_clearance(objects, room)
+    score = compute_accessibility_score(objects, room)
+    return {**state, "clearance_warnings": warnings, "accessibility_score": score}
 
 
 # ─────────────────────── CONDITIONAL EDGES ──────────────────────────────────
@@ -218,6 +237,7 @@ def build_graph() -> StateGraph:
 
     graph.add_node("llm_planner", llm_planner_node)
     graph.add_node("action_dispatcher", action_dispatcher_node)
+    graph.add_node("clearance_check", clearance_check_node)
 
     graph.add_edge(START, "llm_planner")
 
@@ -225,13 +245,14 @@ def build_graph() -> StateGraph:
         "llm_planner",
         should_retry,
         {
-            "retry": "llm_planner",          # retry the LLM call
-            "dispatch": "action_dispatcher",  # proceed to execution
-            "end_with_error": END,            # give up
+            "retry": "llm_planner",
+            "dispatch": "action_dispatcher",
+            "end_with_error": END,
         },
     )
 
-    graph.add_edge("action_dispatcher", END)
+    graph.add_edge("action_dispatcher", "clearance_check")
+    graph.add_edge("clearance_check", END)
 
     return graph.compile()
 

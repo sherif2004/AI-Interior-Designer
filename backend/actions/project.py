@@ -97,3 +97,22 @@ def handle_new_project(state: RoomState, action: dict) -> RoomState:
     fresh["room"]["project_name"] = project_name
     fresh["message"] = f"🆕 Started a new project: {project_name}."
     return fresh
+
+
+def handle_select_object(state: RoomState, action: dict) -> RoomState:
+    target = str(action.get("target", "")).lower().strip()
+    objects = list(state.get("objects", []))
+    if not objects:
+        return {**state, "error": "No objects in the room to select."}
+
+    for obj in objects:
+        if obj["id"].lower() == target or obj["type"].lower() == target or target in obj["id"].lower() or target in obj["type"].lower():
+            return {
+                **state,
+                "selected_object_id": obj["id"],
+                "last_action": {"type": "SELECT_OBJECT", "object_id": obj["id"]},
+                "message": f"🎯 Selected {obj['id']}.",
+                "error": None,
+            }
+
+    return {**state, "error": f"Could not find object to select: '{target}'"}

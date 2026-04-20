@@ -13,7 +13,7 @@ def handle_rotate(state: RoomState, action: dict) -> RoomState:
     objects = list(state.get("objects", []))
     room = state["room"]
 
-    obj, idx = _resolve_target(target, objects, state.get("last_action", {}))
+    obj, idx = _resolve_target(target, objects, state.get("last_action", {}), state.get("selected_object_id", ""))
     if obj is None:
         return {**state, "error": f"Could not find object: '{target}'"}
 
@@ -39,14 +39,19 @@ def handle_rotate(state: RoomState, action: dict) -> RoomState:
         **state,
         "objects": objects,
         "last_action": {"type": "ROTATE", "object_id": obj["id"]},
+        "selected_object_id": obj["id"],
         "message": f"🔄 Rotated {obj['id']} by {degrees}° (now {new_rotation}°).",
         "error": None,
     }
 
 
-def _resolve_target(target, objects, last_action):
+def _resolve_target(target, objects, last_action, selected_object_id=""):
     if not objects:
         return None, -1
+    if target in ("selected", "it") and selected_object_id:
+        for i, o in enumerate(objects):
+            if o["id"] == selected_object_id:
+                return o, i
     if target == "last":
         last_id = last_action.get("object_id", "")
         for i, o in enumerate(objects):

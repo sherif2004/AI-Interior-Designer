@@ -61,6 +61,9 @@ Available types: {furniture_types}
 ### NEW project
 {{"type": "NEW_PROJECT", "project_name": "<optional_name>", "width": <optional_float>, "height": <optional_float>}}
 
+### SELECT an object
+{{"type": "SELECT_OBJECT", "target": "<object_id_or_type>"}}
+
 ### ERROR (unknown/impossible command)
 {{"type": "ERROR", "reason": "<explanation>"}}
 
@@ -80,10 +83,11 @@ Available types: {furniture_types}
 - "down" / "backward" → positive Z
 - Default amount: 0.5 meters if not specified
 
-## TARGET RULES (for MOVE/ROTATE/DELETE)
+## TARGET RULES (for MOVE/ROTATE/DELETE/SELECT_OBJECT)
 - Use object ID if known (e.g. "bed_1")
 - Use object type if only one exists (e.g. "bed")
 - Use "last" to reference the most recently placed object
+- Use "selected" or "it" when the user is referring to the currently selected object
 
 ## STYLE RULES
 - Use SET_WALL_STYLE for requests about wall color, wall paint, wall material, wallpaper, or panels
@@ -98,6 +102,7 @@ Available types: {furniture_types}
 - Use SAVE_PROJECT when the user asks to save the current design
 - Use LOAD_PROJECT when the user asks to open a saved project
 - Use NEW_PROJECT when the user wants a fresh home/project started
+- Use SELECT_OBJECT when the user explicitly asks to select/highlight/focus an item
 
 ## EXAMPLES
 
@@ -151,6 +156,9 @@ Response: {{"type": "SAVE_PROJECT", "project_name": "family home", "project_id":
 
 User: "Load project family_home"
 Response: {{"type": "LOAD_PROJECT", "project_id": "family_home"}}
+
+User: "Select the sofa"
+Response: {{"type": "SELECT_OBJECT", "target": "sofa"}}
 """
 
 
@@ -186,7 +194,9 @@ def build_planner_prompt(user_command: str, state: dict) -> tuple[str, str]:
         f"floor={floor_style.get('label', floor_style.get('color', 'default'))}"
     )
 
-    # Include last action for pronoun resolution ("it", "the bed")
+    # Include last action and current selection for pronoun resolution ("it", "the bed")
+    selected_object_id = state.get("selected_object_id", "")
+    selected_ref = f"\nCurrently selected object: {selected_object_id}" if selected_object_id else ""
     last_action = state.get("last_action", {})
     last_ref = ""
     if last_action:
@@ -196,5 +206,5 @@ def build_planner_prompt(user_command: str, state: dict) -> tuple[str, str]:
     if state.get("error"):
         error_ctx = f'\nPrevious attempt failed: {state["error"]}. Please try a different placement.'
 
-    user_msg = f"{context}{style_context}{last_ref}{error_ctx}\n\nUser command: {user_command}"
+    user_msg = f"{context}{style_context}{selected_ref}{last_ref}{error_ctx}\n\nUser command: {user_command}"
     return system, user_msg

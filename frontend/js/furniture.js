@@ -5,6 +5,46 @@ import * as THREE from 'three';
 
 const SCALE = 0.5; // 1 meter → 0.5 THREE units
 
+// Texture cache so repeated products don't re-download images
+const _texCache = new Map(); // url -> THREE.Texture
+const _loader = new THREE.TextureLoader();
+
+function _proxiedImgUrl(url) {
+  if (!url) return '';
+  try { return `/img?u=${encodeURIComponent(url)}`; } catch { return url; }
+}
+
+function _applyProductTexture(group, obj, w, d, h) {
+  const raw = obj?.image_url;
+  if (!raw) return;
+  const url = _proxiedImgUrl(raw);
+  if (!url) return;
+
+  let tex = _texCache.get(url);
+  if (!tex) {
+    tex = _loader.load(
+      url,
+      (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 4;
+        t.needsUpdate = true;
+      },
+      undefined,
+      () => {}
+    );
+    _texCache.set(url, tex);
+  }
+
+  // Put the product image on a top "label" plane so the 3D object looks like the real product.
+  const geo = new THREE.PlaneGeometry(Math.max(0.12, w * 0.95), Math.max(0.12, d * 0.95));
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.98, side: THREE.DoubleSide });
+  const plane = new THREE.Mesh(geo, mat);
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.y = h / 2 + 0.012;
+  plane.renderOrder = 2;
+  group.add(plane);
+}
+
 // Emoji map for catalog display
 export const FURNITURE_EMOJIS = {
   bed: '🛏️',
@@ -66,6 +106,9 @@ export function createFurnitureMesh(obj) {
     default:
       _buildBox(group, w, d, h, color);
   }
+
+  // If this object came from IKEA (or has an image), stamp its product photo onto the mesh.
+  _applyProductTexture(group, obj, w, d, h);
 
   // Position: center of object in X/Z, bottom at Y=0
   group.position.set(
