@@ -79,19 +79,24 @@ def _to_catalog_entry(p: IKEAProduct) -> dict:
         # Appearance
         "color":    p.color or "unknown",
         "colors":   p.colors,
+        "color_variants": p.color_variants,  # [{id, name, image_url, price, pip_url}]
         "material": p.material,
 
-        # Commerce
+        # Commerce — EGP prices for Egypt
         "price_low":  p.price_low  or p.price,
         "price_high": p.price_high or p.price,
         "price":      p.price,
-        "currency":   p.currency,
+        "currency":   p.currency,            # "EGP" for Egypt
         "in_stock":   p.in_stock,
         "buy_url":    p.buy_url,
 
-        # Media
-        "image_url":  p.image_url,
-        "image_urls": p.image_urls,
+        # Media — rich image gallery
+        "image_url":          p.image_url,
+        "image_urls":         p.image_urls,
+        "image_urls_by_type": p.image_urls_by_type,  # {MAIN: [...], CONTEXT: [...], ...}
+
+        # 3D / AR
+        "model_url":  p.model_url,           # GLB URL for WebXR AR viewer
 
         # Physical
         "weight_kg": p.weight_kg,
@@ -142,30 +147,33 @@ def merge_into_project_catalog(products: list[IKEAProduct]) -> Path:
 
 CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS products (
-    id             TEXT PRIMARY KEY,
-    item_no        TEXT,
-    name           TEXT,
-    series         TEXT,
-    description    TEXT,
-    category       TEXT,
-    ikea_category  TEXT,
-    width          REAL,
-    depth          REAL,
-    height         REAL,
-    price          REAL,
-    price_low      REAL,
-    price_high     REAL,
-    currency       TEXT,
-    color          TEXT,
-    material       TEXT,
-    weight_kg      REAL,
-    min_clearance  REAL,
-    in_stock       INTEGER,
-    image_url      TEXT,
-    buy_url        TEXT,
-    colors_json    TEXT,
-    image_urls_json TEXT,
-    scraped_at     TEXT
+    id                    TEXT PRIMARY KEY,
+    item_no               TEXT,
+    name                  TEXT,
+    series                TEXT,
+    description           TEXT,
+    category              TEXT,
+    ikea_category         TEXT,
+    width                 REAL,
+    depth                 REAL,
+    height                REAL,
+    price                 REAL,
+    price_low             REAL,
+    price_high            REAL,
+    currency              TEXT,
+    color                 TEXT,
+    material              TEXT,
+    weight_kg             REAL,
+    min_clearance         REAL,
+    in_stock              INTEGER,
+    image_url             TEXT,
+    buy_url               TEXT,
+    model_url             TEXT,
+    colors_json           TEXT,
+    image_urls_json       TEXT,
+    image_urls_by_type_json TEXT,
+    color_variants_json   TEXT,
+    scraped_at            TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_category     ON products(category);
 CREATE INDEX IF NOT EXISTS idx_ikea_cat     ON products(ikea_category);
@@ -173,18 +181,37 @@ CREATE INDEX IF NOT EXISTS idx_price        ON products(price);
 CREATE INDEX IF NOT EXISTS idx_name         ON products(name);
 CREATE INDEX IF NOT EXISTS idx_series       ON products(series);
 CREATE INDEX IF NOT EXISTS idx_in_stock     ON products(in_stock);
+CREATE INDEX IF NOT EXISTS idx_model_url    ON products(model_url);
 """
 
 def save_sqlite(products: list[IKEAProduct]) -> Path:
     """Save products to SQLite for fast querying."""
     DATA_DIR.mkdir(exist_ok=True)
+
+    # Drop & recreate DB to apply schema changes cleanly
     con = sqlite3.connect(SQLITE_DB)
     cur = con.cursor()
 
+    # Apply schema (CREATE IF NOT EXISTS + indexes)
     for stmt in CREATE_TABLE.strip().split(";"):
         stmt = stmt.strip()
         if stmt:
-            cur.execute(stmt)
+            try:
+                cur.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # Index already exists etc.
+
+    # Try to add new columns to existing tables (migration)
+    new_cols = [
+        ("model_url",               "TEXT"),
+        ("image_urls_by_type_json",  "TEXT"),
+        ("color_variants_json",      "TEXT"),
+    ]
+    for col_name, col_type in new_cols:
+        try:
+            cur.execute(f"ALTER TABLE products ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     rows = [
         (
@@ -209,8 +236,11 @@ def save_sqlite(products: list[IKEAProduct]) -> Path:
             int(p.in_stock),
             p.image_url,
             p.buy_url,
-            json.dumps(p.colors),
-            json.dumps(p.image_urls),
+            p.model_url,
+            json.dumps(p.colors,              ensure_ascii=False),
+            json.dumps(p.image_urls,          ensure_ascii=False),
+            json.dumps(p.image_urls_by_type,  ensure_ascii=False),
+            json.dumps(p.color_variants,      ensure_ascii=False),
             p.scraped_at,
         )
         for p in products
@@ -219,7 +249,7 @@ def save_sqlite(products: list[IKEAProduct]) -> Path:
 
     cur.executemany(
         """INSERT OR REPLACE INTO products VALUES
-           (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+           (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         rows,
     )
     con.commit()
@@ -349,12 +379,17 @@ class IKEACatalogDB:
             ).fetchall()
             price_avg = con.execute("SELECT AVG(price) FROM products WHERE price > 0").fetchone()[0]
             in_stock  = con.execute("SELECT COUNT(*) FROM products WHERE in_stock = 1").fetchone()[0]
+            has_model = con.execute("SELECT COUNT(*) FROM products WHERE model_url != ''").fetchone()[0]
+            currency  = con.execute("SELECT currency FROM products LIMIT 1").fetchone()
+            currency  = currency[0] if currency else "EGP"
 
         return {
-            "total":           total,
-            "in_stock":        in_stock,
-            "avg_price_usd":   round(price_avg or 0, 2),
-            "by_category":     {r[0]: r[1] for r in by_cat},
+            "total":            total,
+            "in_stock":         in_stock,
+            "has_3d_model":     has_model,
+            "avg_price":        round(price_avg or 0, 2),
+            "currency":         currency,
+            "by_category":      {r[0]: r[1] for r in by_cat},
         }
 
     @staticmethod
@@ -362,8 +397,21 @@ class IKEACatalogDB:
         if row is None:
             return {}
         d = dict(row)
-        d["colors"]     = json.loads(d.get("colors_json",     "[]") or "[]")
-        d["image_urls"] = json.loads(d.get("image_urls_json", "[]") or "[]")
-        d.pop("colors_json",     None)
-        d.pop("image_urls_json", None)
+
+        def _safe_json(val, default):
+            if not val:
+                return default
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return default
+
+        d["colors"]             = _safe_json(d.get("colors_json"),             [])
+        d["image_urls"]         = _safe_json(d.get("image_urls_json"),         [])
+        d["image_urls_by_type"] = _safe_json(d.get("image_urls_by_type_json"), {})
+        d["color_variants"]     = _safe_json(d.get("color_variants_json"),     [])
+        d.pop("colors_json",             None)
+        d.pop("image_urls_json",         None)
+        d.pop("image_urls_by_type_json", None)
+        d.pop("color_variants_json",     None)
         return d

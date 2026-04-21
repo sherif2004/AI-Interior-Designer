@@ -27,6 +27,30 @@ def handle_set_room_dimensions(state: RoomState, action: dict) -> RoomState:
         "error": None,
     }
 
+def handle_set_room_shape(state: RoomState, action: dict) -> RoomState:
+    room = deepcopy(state.get("room", {}))
+    shape = str(action.get("shape", "rectangle")).strip()
+    width = float(action.get("width", room.get("width", 10.0)))
+    height = float(action.get("height", room.get("height", 8.0)))
+
+    room["shape"] = shape
+    room["width"] = max(2.0, width)
+    room["height"] = max(2.0, height)
+    
+    # We leverage backend/floorplan/wall_builder here to embed walls directly into the state
+    from backend.floorplan.wall_builder import infer_walls_from_room
+    inferred = infer_walls_from_room(room["width"], room["height"], shape=shape)
+    room["walls"] = inferred["walls"]
+    room["floor_polygon"] = inferred["floor_polygon"]
+
+    return {
+        **state,
+        "room": room,
+        "last_action": {"type": "SET_ROOM_SHAPE", "object_id": shape},
+        "message": f"📐 Set room shape to '{shape}' ({room['width']:.1f}m × {room['height']:.1f}m).",
+        "error": None,
+    }
+
 
 def handle_add_opening(state: RoomState, action: dict, opening_type: str) -> RoomState:
     room = deepcopy(state.get("room", {}))

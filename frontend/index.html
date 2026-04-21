@@ -3,292 +3,260 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Interior Designer — Phase 2 & 3 Home Planner</title>
-  <meta name="description" content="Professional AI home planner with budget estimation, clearance validation, version comparison, photoreal rendering, and product catalog integration." />
+  <title>AI Interior Designer</title>
+  <meta name="description" content="Professional SaaS AI Home Planner" />
   <link rel="icon" href="data:," />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="saas-theme">
 
-  <!-- ═══════════════ HEADER ═══════════════ -->
-  <header class="app-header">
-    <div class="header-brand">
+  <!-- ═══════════════ SIDEBAR NAVIGATION ═══════════════ -->
+  <nav class="saas-sidebar" id="sidebar">
+    <div class="sidebar-brand">
       <div class="brand-icon">🏠</div>
-      <div class="brand-text">
-        <h1 class="brand-title">AI Interior Designer</h1>
-        <span class="brand-subtitle">Phase 2 & 3 — Practical Home Planner</span>
-      </div>
+      <div class="brand-text">Designer AI</div>
     </div>
-    <div class="header-actions">
-      <!-- Day/Night Slider -->
-      <div class="time-control" title="Adjust time of day for lighting">
-        <span class="time-icon">☀️</span>
-        <input type="range" id="time-slider" min="0" max="24" step="0.5" value="14" class="time-slider" />
-        <span class="time-icon">🌙</span>
-        <span id="time-label" class="time-label">2:00 PM</span>
+    
+    <!-- We use the existing side-tab class so JS tab switching works -->
+    <div class="sidebar-nav">
+      <button class="side-tab active" data-panel="panel-chat" title="Workspace (3D/2D)">
+        <span class="nav-icon">👁️</span> <span class="nav-label">Workspace</span>
+      </button>
+      <button class="side-tab" data-panel="panel-products" title="IKEA Catalog (EGP)">
+        <span class="nav-icon">🛍️</span> <span class="nav-label">Catalog</span>
+      </button>
+      <button class="side-tab" data-panel="panel-versions" title="Version Control">
+        <span class="nav-icon">🔀</span> <span class="nav-label">Versions</span>
+      </button>
+      <button class="side-tab" data-panel="panel-blueprint" title="Import Floor Plan">
+        <span class="nav-icon">📐</span> <span class="nav-label">Import Plan</span>
+      </button>
+      <button class="side-tab" data-panel="panel-project" title="Project Settings">
+        <span class="nav-icon">⚙️</span> <span class="nav-label">Settings</span>
+      </button>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="connection-badge" id="llm-status" title="LLM Status">
+        <span class="dot dot-connecting" id="llm-dot"></span>
+        <span id="llm-label" class="nav-label">LLM...</span>
       </div>
-
-      <!-- Measure mode -->
-      <button id="btn-measure" class="btn btn-ghost" title="Click two objects to measure distance">📏 Measure</button>
-
-      <!-- AI Render -->
-      <button id="btn-render" class="btn btn-accent" title="Generate AI photoreal image">✨ AI Render</button>
-
-      <!-- AR Preview (hidden on desktop, shown if WebXR is available) -->
-      <button id="btn-ar" class="btn btn-ghost ar-btn" style="display:none;" title="View in Augmented Reality">
-        📱 AR Preview
-      </button>
-      <span id="ar-hint" class="ar-hint" style="display:none" title="AR available on mobile Chrome/Safari">📱 AR on mobile</span>
-
-      <button id="btn-toggle-view" class="btn btn-ghost" title="Toggle 2D/3D view">
-        <span id="view-label">3D View</span>
-      </button>
-      <button id="btn-reset" class="btn btn-danger" title="Reset room">🔄 Reset</button>
-
       <div class="connection-badge" id="ws-status">
         <span class="dot dot-connecting"></span>
-        <span id="ws-label">Connecting…</span>
-      </div>
-      <div class="connection-badge" id="llm-status" title="LLM Connection Status">
-        <span class="dot dot-connecting" id="llm-dot"></span>
-        <span id="llm-label">LLM…</span>
+        <span id="ws-label" class="nav-label">Connecting…</span>
       </div>
     </div>
-  </header>
+  </nav>
 
-  <!-- ═══════════════ LAYOUT ═══════════════ -->
-  <div class="app-layout">
+  <!-- ═══════════════ MAIN CONTENT ═══════════════ -->
+  <div class="saas-main">
+    
+    <!-- TOPBAR -->
+    <header class="saas-topbar">
+      <div class="topbar-breadcrumbs">
+        <span class="crumb">Project / </span><span id="project-name" class="crumb-active">My Home Project</span>
+      </div>
+      
+      <div class="topbar-actions">
+        <!-- Render button -->
+        <button id="btn-render" class="btn btn-accent">✨ AI Render</button>
 
-    <!-- ── LEFT PANEL: Tabbed Design Tools ── -->
-    <aside class="chat-panel" id="chat-panel">
+        <!-- View Mode -->
+        <button id="btn-toggle-view" class="btn btn-ghost" title="Toggle 2D/3D view">
+          <span id="view-label">3D View</span>
+        </button>
 
-      <!-- Tab Navigation -->
-      <nav class="side-tabs">
-        <button class="side-tab active" data-panel="panel-chat" title="AI Design Chat">💬 Chat</button>
-        <button class="side-tab" data-panel="panel-project" title="Project & Templates">📂 Project</button>
-        <button class="side-tab" data-panel="panel-budget" title="Cost Estimation">💰 Budget</button>
-        <button class="side-tab" data-panel="panel-clearance" title="Walkability Checker">⚠️ Clearance</button>
-        <button class="side-tab" data-panel="panel-versions" title="Design A vs B">🔀 Compare</button>
-        <button class="side-tab" data-panel="panel-products" title="Shop Products">🛍️ Shop</button>
-        <button class="side-tab" data-panel="panel-blueprint" title="Import Floor Plan">📐 Import</button>
-      </nav>
+        <button id="btn-ar" class="btn btn-ghost ar-btn" style="display:none;" title="View in Augmented Reality">
+          📱 AR
+        </button>
+        <span id="ar-hint" class="ar-hint" style="display:none">📱 AR</span>
 
-      <!-- Panel: Chat -->
-      <div id="panel-chat" class="side-panel-content active-panel">
-        <div class="panel-header">
-          <h2 class="panel-title">Design Assistant</h2>
-          <span class="object-count" id="object-count">0 items</span>
-        </div>
+        <!-- Reset -->
+        <button id="btn-reset" class="btn btn-danger" title="Clear room">🔄 Reset</button>
+      </div>
+    </header>
 
-        <!-- Quick command chips -->
-        <div class="quick-commands" id="quick-commands">
-          <span class="chip-label">Try:</span>
-          <button class="chip" data-cmd="Create a cozy bedroom">Cozy bedroom</button>
-          <button class="chip" data-cmd="Create a modern living room">Living room</button>
-          <button class="chip" data-cmd="Add a window on the north wall">Add window</button>
-          <button class="chip" data-cmd="Make the room 6 by 4 meters">Resize room</button>
-          <button class="chip" data-cmd="Set the ceiling height to 3.5 meters">Set ceiling</button>
-        </div>
+    <!-- KPI CARDS ROW -->
+    <div class="saas-kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">Dimensions</div>
+        <div class="kpi-value" id="stat-room">10 × 8 m</div>
+        <div class="kpi-sub">Ceiling: <span id="project-ceiling">3.0m</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Furniture Count</div>
+        <div class="kpi-value" id="stat-objects">0</div>
+        <div class="kpi-sub"><span id="object-count">0 items</span></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Layout Score</div>
+        <div class="kpi-value score-good" id="accessibility-score">100%</div>
+        <div class="kpi-sub" id="clearance-badge" style="display:none; color:var(--accent-red)">⚠️ Issues found</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Last Action</div>
+        <div class="kpi-value" id="stat-last">—</div>
+        <div class="kpi-sub">via AI Designer</div>
+      </div>
+    </div>
 
-        <!-- Chat history -->
-        <div class="chat-history" id="chat-history">
-          <div class="chat-message assistant">
-            <div class="avatar">🤖</div>
-            <div class="bubble">
-              Welcome to the <strong>Phase 2 & 3</strong> AI Interior Designer!<br/><br/>
-              🆕 New features: <em>budget estimation, clearance checks, version comparison, AI renders, blueprint import, and real product catalog.</em><br/><br/>
-              Try: <em>"Create a modern living room"</em>
+    <!-- WORKSPACE AREA -->
+    <div class="saas-workspace">
+      
+      <!-- CENTER: Tabbed content -->
+      <div class="saas-center">
+        
+        <!-- Tab 1: 3D/2D Viewer (panel-chat so it's active by default per app.js) -->
+        <div id="panel-chat" class="side-panel-content active-panel saas-viewer-panel">
+          <main class="viewer-container" id="viewer-container">
+            <canvas id="three-canvas"></canvas>
+            <canvas id="canvas-2d" style="display:none;"></canvas>
+            
+            <div class="controls-hint" id="controls-hint">
+              <span>🖱️ Orbit</span>
+              <span>⚙️ Scroll zoom</span>
+              <span>🤚 Right-drag pan</span>
             </div>
+
+            <div class="room-style-panel" id="room-style-panel">
+              <div class="style-chip"><span class="style-chip-label">Theme</span><span class="style-chip-value" id="style-theme">Modern</span></div>
+              <div class="style-chip"><span class="style-chip-label">Walls</span><span class="style-chip-value" id="style-walls">Warm white paint</span></div>
+              <div class="style-chip"><span class="style-chip-label">Floor</span><span class="style-chip-value" id="style-floor">Oak wood</span></div>
+            </div>
+
+            <!-- AR Overlay -->
+            <div id="ar-overlay" class="ar-overlay" style="display:none;">
+              <button class="btn btn-danger ar-exit-btn" onclick="window._exitAR && window._exitAR()">Exit AR</button>
+            </div>
+            
+            <!-- Quick command chips overlaid on viewer -->
+            <div class="quick-commands floating-chips" id="quick-commands">
+              <span class="chip-label">Try:</span>
+              <button class="chip" data-cmd="Create a cozy bedroom">Cozy bedroom</button>
+              <button class="chip" data-cmd="Create a modern living room">Modern living room</button>
+              <button class="chip" data-cmd="Make the room 6 by 5 meters">Resize room</button>
+            </div>
+          </main>
+        </div>
+
+        <!-- Tab 2: Catalog -->
+        <div id="panel-products" class="side-panel-content saas-content-panel">
+          <div class="saas-panel-header">
+            <h2>🛍️ IKEA Egypt Catalog</h2>
+            <button class="btn btn-ghost btn-small" id="btn-live-scrape">⚡ Live Scrape</button>
+          </div>
+          <div class="saas-search-bar">
+            <input id="products-search" placeholder="Search furniture (e.g. bed, desk)..." />
+            <button class="btn btn-primary" id="btn-products-search">Search</button>
+          </div>
+          <div id="scrape-status" class="saas-status-text"></div>
+          <div id="products-panel-inner" class="products-panel-inner">
+            <p class="empty-inventory">Search or browse products.</p>
           </div>
         </div>
 
-        <!-- Input area -->
-        <div class="chat-input-area">
-          <div class="input-wrapper">
-            <input
-              type="text"
-              id="command-input"
-              class="command-input"
-              placeholder="e.g. Add a sofa near the north wall…"
-              autocomplete="off"
-              autofocus
-            />
-            <button id="send-btn" class="send-btn" title="Send command">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
-            </button>
-          </div>
-          <div class="input-hint">Press <kbd>Enter</kbd> to send</div>
-        </div>
-      </div>
-
-      <!-- Panel: Project -->
-      <div id="panel-project" class="side-panel-content">
-        <div class="panel-header">
-          <h2 class="panel-title">Project</h2>
-        </div>
-        <div class="project-panel" id="project-panel">
-          <div class="project-row">
-            <span class="project-label">Project</span>
-            <span class="project-value" id="project-name">My Home Project</span>
-          </div>
-          <div class="project-row">
-            <span class="project-label">ID</span>
-            <span class="project-value mono" id="project-id">default_project</span>
-          </div>
-          <div class="project-row">
-            <span class="project-label">Ceiling</span>
-            <span class="project-value mono" id="project-ceiling">3.0m</span>
-          </div>
-          <div class="project-actions">
-            <button class="btn btn-ghost btn-small" id="btn-save-project">💾 Save</button>
-            <button class="btn btn-ghost btn-small" id="btn-load-project">📂 Load</button>
-          </div>
-          <div class="project-list" id="project-list"></div>
+        <!-- Tab 3: Versions -->
+        <div id="panel-versions" class="side-panel-content saas-content-panel">
+          <div class="saas-panel-header"><h2>🔀 Version Control</h2></div>
+          <div id="panel-versions-inner"></div>
         </div>
 
-        <!-- Catalog -->
-        <div class="catalog-section">
-          <div class="panel-header" style="margin-bottom:8px;">
-            <h2 class="panel-title">Furniture Catalog</h2>
-          </div>
-          <div class="catalog-grid" id="catalog-grid"></div>
-        </div>
-      </div>
-
-      <!-- Panel: Budget -->
-      <div id="panel-budget" class="side-panel-content">
-        <div class="panel-header">
-          <h2 class="panel-title">💰 Budget Estimator</h2>
-          <button class="btn btn-ghost btn-small" id="btn-refresh-budget">↻ Refresh</button>
-        </div>
-        <div id="budget-panel-inner" class="budget-panel-inner">
-          <p class="empty-inventory">Add furniture to see cost estimates.</p>
-        </div>
-      </div>
-
-      <!-- Panel: Clearance -->
-      <div id="panel-clearance" class="side-panel-content">
-        <div class="panel-header">
-          <h2 class="panel-title">⚠️ Clearance & Walkability</h2>
-          <button class="btn btn-ghost btn-small" id="btn-clearance-toggle">↻ Check</button>
-        </div>
-        <div class="clearance-summary">
-          <span class="clearance-summary-label">Score</span>
-          <span class="score-value score-good" id="accessibility-score">100%</span>
-        </div>
-        <div id="clearance-panel-inner" class="clearance-panel-inner">
-          <p class="empty-inventory">Click "Check" or add furniture to analyze clearances.</p>
-        </div>
-      </div>
-
-      <!-- Panel: Versions -->
-      <div id="panel-versions" class="side-panel-content">
-        <div class="panel-header">
-          <h2 class="panel-title">🔀 Version Comparison</h2>
-        </div>
-        <div id="panel-versions-inner"></div>
-      </div>
-
-      <!-- Panel: Products (Shop) -->
-      <div id="panel-products" class="side-panel-content">
-        <div class="panel-header">
-          <h2 class="panel-title">🛍️ Shop Similar</h2>
-          <button class="btn btn-ghost btn-small" id="btn-live-scrape" title="Scrape IKEA catalog and show results as they arrive">⚡ Live scrape</button>
-        </div>
-        <div class="products-toolbar" style="padding:10px 14px; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid var(--border);">
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="products-search" class="ver-name-input" placeholder="Search (e.g. bed, desk, lamp)" />
-            <button class="btn btn-ghost btn-small" id="btn-products-search">Search</button>
-          </div>
-          <div id="scrape-status" class="panel-subtitle" style="min-height:16px;"> </div>
-        </div>
-        <div id="products-panel-inner" class="products-panel-inner">
-          <p class="empty-inventory">Add furniture to see product suggestions.</p>
-        </div>
-      </div>
-
-      <!-- Panel: Blueprint Import -->
-      <div id="panel-blueprint" class="side-panel-content">
-        <div class="panel-header">
-          <h2 class="panel-title">📐 Import Floor Plan</h2>
-        </div>
-        <div class="blueprint-panel">
-          <p class="blueprint-desc">
-            Upload a floor plan image (PNG or JPG) to automatically extract room dimensions, doors, and windows.
-          </p>
+        <!-- Tab 4: Blueprint -->
+        <div id="panel-blueprint" class="side-panel-content saas-content-panel">
+          <div class="saas-panel-header"><h2>📐 Import Floor Plan</h2></div>
           <div class="blueprint-upload-zone" id="blueprint-drop-zone">
             <div class="blueprint-upload-icon">📐</div>
             <p>Drag & drop or</p>
-            <button class="btn btn-accent" id="btn-blueprint-upload">Choose File</button>
+            <button class="btn btn-accent" id="btn-blueprint-upload">Choose File (PNG/JPG)</button>
             <input type="file" id="blueprint-file-input" accept=".png,.jpg,.jpeg,.webp" style="display:none;" />
           </div>
-          <div id="blueprint-status" class="blueprint-status"></div>
-          <div class="blueprint-tips">
-            <div class="tip">💡 Works best with simple architectural floor plans</div>
-            <div class="tip">🤖 Uses AI vision to extract dimensions automatically</div>
-            <div class="tip">📝 You can always adjust with voice commands after import</div>
+          <div id="blueprint-status" class="blueprint-status mt-4"></div>
+        </div>
+
+        <!-- Tab 5: Settings -->
+        <div id="panel-project" class="side-panel-content saas-content-panel">
+          <div class="saas-panel-header"><h2>⚙️ Project Settings</h2></div>
+          <div class="project-details">
+            <div class="detail-row"><span>Project ID</span> <span id="project-id" class="mono">default_project</span></div>
+            <div class="saas-panel-actions">
+              <button class="btn btn-ghost" id="btn-save-project">💾 Save</button>
+              <button class="btn btn-ghost" id="btn-load-project">📂 Load</button>
+            </div>
+          </div>
+          <div id="project-list" class="saas-list mt-4"></div>
+        </div>
+
+        <!-- Hidden tabs needed by JS logic but integrated into right sidebar -->
+        <div id="panel-budget" class="side-panel-content" style="display:none"></div>
+        <div id="panel-clearance" class="side-panel-content" style="display:none"></div>
+
+      </div>
+      
+      <!-- RIGHT PANEL: Contextual info -->
+      <aside class="saas-right-panel">
+        
+        <!-- Inventory -->
+        <div class="saas-widget">
+          <div class="widget-header">
+            <h3>Room Objects</h3>
+          </div>
+          <div class="inventory-list" id="inventory-list">
+            <p class="empty-inventory">No furniture placed yet.</p>
           </div>
         </div>
+
+        <!-- Budget -->
+        <div class="saas-widget">
+          <div class="widget-header">
+            <h3>Budget Est.</h3>
+            <button class="btn btn-ghost btn-tiny" id="btn-refresh-budget">↻</button>
+          </div>
+          <div id="budget-panel-inner" class="budget-panel-inner">
+            <p class="empty-text">Add furniture to estimate.</p>
+          </div>
+        </div>
+
+        <!-- Clearances -->
+        <div class="saas-widget">
+          <div class="widget-header">
+            <h3>Clearances</h3>
+            <div>
+              <button class="btn btn-ghost btn-tiny" id="btn-measure">📏</button>
+              <button class="btn btn-ghost btn-tiny" id="btn-clearance-toggle">↻ Check</button>
+            </div>
+          </div>
+          <div id="clearance-panel-inner" class="clearance-panel-inner">
+            <p class="empty-text">Click Check to analyze.</p>
+          </div>
+        </div>
+
+      </aside>
+
+    </div>
+
+    <!-- AI COMMAND BAR (Floating Bottom) -->
+    <div class="saas-command-bar">
+      <!-- Hidden history but accessible if needed -->
+      <div class="chat-history" id="chat-history" style="display: none;"></div>
+      
+      <div class="command-input-wrapper">
+        <div class="ai-sparkle">✨</div>
+        <input type="text" id="command-input" class="command-input" placeholder="Ask AI to design, add furniture, or modify the layout..." autocomplete="off" autofocus />
+        <button id="send-btn" class="send-btn" title="Send to AI">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
       </div>
-
-    </aside>
-
-    <!-- ── MAIN: 3D Viewer ── -->
-    <main class="viewer-container" id="viewer-container">
-      <canvas id="three-canvas"></canvas>
-      <canvas id="canvas-2d" style="display:none;"></canvas>
-
-      <!-- Clearance badge overlay -->
-      <div id="clearance-badge" class="clearance-badge" style="display:none;"></div>
-
-      <!-- Camera controls hint -->
-      <div class="controls-hint" id="controls-hint">
-        <span>🖱️ Orbit</span>
-        <span>⚙️ Scroll zoom</span>
-        <span>🤚 Right-drag pan</span>
-      </div>
-
-      <!-- Loading overlay -->
-      <div class="loading-overlay" id="loading-overlay" style="display:none;">
-        <div class="spinner"></div>
-        <p class="loading-text">AI is thinking…</p>
-      </div>
-
-      <!-- Room style chips -->
-      <div class="room-style-panel" id="room-style-panel">
-        <div class="style-chip"><span class="style-chip-label">Theme</span><span class="style-chip-value" id="style-theme">Modern</span></div>
-        <div class="style-chip"><span class="style-chip-label">Walls</span><span class="style-chip-value" id="style-walls">Warm white paint</span></div>
-        <div class="style-chip"><span class="style-chip-label">Floor</span><span class="style-chip-value" id="style-floor">Oak wood</span></div>
-      </div>
-
-      <!-- Room stats bar -->
-      <div class="stats-bar" id="stats-bar">
-        <div class="stat"><span class="stat-label">Room</span><span class="stat-value" id="stat-room">10 × 8 m</span></div>
-        <div class="stat"><span class="stat-label">Furniture</span><span class="stat-value" id="stat-objects">0</span></div>
-        <div class="stat"><span class="stat-label">Last Action</span><span class="stat-value" id="stat-last">—</span></div>
-      </div>
-    </main>
-
-    <!-- ── RIGHT PANEL: Inventory ── -->
-    <aside class="inventory-panel" id="inventory-panel">
-      <div class="panel-header">
-        <h2 class="panel-title">Room Objects</h2>
-      </div>
-      <div class="inventory-list" id="inventory-list">
-        <p class="empty-inventory">No furniture placed yet.</p>
-      </div>
-    </aside>
+    </div>
+    
   </div>
 
-  <!-- AR Overlay (shown during AR session) -->
-  <div id="ar-overlay" class="ar-overlay" style="display:none;">
-    <button class="btn btn-danger ar-exit-btn" onclick="window._exitAR && window._exitAR()">Exit AR</button>
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loading-overlay" style="display:none;">
+    <div class="spinner"></div>
+    <p class="loading-text">AI is planning...</p>
   </div>
 
   <!-- Scripts -->

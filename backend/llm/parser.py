@@ -8,7 +8,7 @@ from typing import Optional
 VALID_TYPES = {
     "ADD", "MOVE", "ROTATE", "DELETE", "RESET", "ERROR",
     "SET_WALL_STYLE", "SET_FLOOR_STYLE", "SET_ROOM_STYLE", "GENERATE_LAYOUT",
-    "SET_ROOM_DIMENSIONS", "ADD_WINDOW", "ADD_DOOR", "SAVE_PROJECT", "LOAD_PROJECT", "NEW_PROJECT",
+    "SET_ROOM_DIMENSIONS", "SET_ROOM_SHAPE", "ADD_WINDOW", "ADD_DOOR", "SAVE_PROJECT", "LOAD_PROJECT", "NEW_PROJECT",
     "SELECT_OBJECT",
 }
 
@@ -23,6 +23,7 @@ REQUIRED_FIELDS = {
     "SET_ROOM_STYLE":    ["theme"],
     "GENERATE_LAYOUT":   ["room_type"],
     "SET_ROOM_DIMENSIONS": [],
+    "SET_ROOM_SHAPE":    ["shape"],
     "ADD_WINDOW":        [],
     "ADD_DOOR":          [],
     "SAVE_PROJECT":      [],

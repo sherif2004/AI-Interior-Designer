@@ -10,6 +10,23 @@ Phase 2 & 3 additions:
   POST /render         — AI photoreal image generation
   POST /import/blueprint — upload & parse floor plan
   GET  /products       — real product suggestions for a furniture type
+Phase 4A/4B/4D additions:
+  POST /scan/frame     — live camera frame → LLM vision room scan
+  GET  /score          — 5-dimension layout score
+  GET  /zones          — functional zone detection
+  POST /goal           — set design goal, generate action plan
+  POST /simulate       — what-if simulation (no state mutation)
+  POST /autofix        — auto-fix layout issues
+  GET  /preference/{session_id}  — preference profile
+  POST /preference/{session_id}/signal — record preference signal
+  POST /ar/session     — create AR session
+  GET  /ar/session/{token} — get AR session
+  POST /ar/session/{token}/place — place product in AR
+  POST /ar/session/{token}/capture — save AR screenshot
+  GET  /ar/session/{token}/qr — get QR code for cross-device handoff
+  POST /ar/session/{token}/save-to-design — commit AR→RoomState
+  GET  /ar/product/{item_id}/preview — product AR preview with EGP price
+  GET  /products/catalog — IKEA Egypt product catalog (EGP)
 """
 import os
 import json
@@ -38,6 +55,23 @@ from backend.blueprint_import.blueprint_parser import parse_blueprint
 from backend.api.ikea_routes import router as ikea_router
 from backend.catalog.product_search import get_product_by_id
 from backend.actions.add import handle_add
+
+# Phase 4B — Layout intelligence
+from backend.engine.layout_scorer import score_layout
+from backend.engine.zoning import detect_zones
+from backend.planner.goal_planner import plan_goal
+from backend.planner.what_if_engine import simulate
+from backend.planner.preference_store import record_signal, get_preference_summary
+
+# Phase 4A + 4D — AR & vision
+from backend.vision.live_scanner import scan_frame
+from backend.ar.session_manager import (
+    create_session, get_session, save_session,
+    place_product as ar_place_product,
+    save_capture as ar_save_capture,
+    generate_qr_code,
+    session_to_room_state_actions,
+)
 
 # ─────────────────────── App-level state ────────────────────────────────────
 
@@ -74,8 +108,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI Interior Designer API",
-    version="2.0.0",
-    description="Stateful AI room design system — Phase 2 & 3 features",
+    version="4.0.0",
+    description="Stateful AI room design — Phases 2–4D: Egypt IKEA catalog, AR, scoring, goal planning",
     lifespan=lifespan,
 )
 
@@ -93,7 +127,9 @@ _FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
 # ─────────────────────── Models ─────────────────────────────────────────────
 
 class CommandRequest(BaseModel):
-    command: str
+    command: str = ""
+    action: str = ""
+    params: dict = {}
 
 
 class ResetRequest(BaseModel):
@@ -113,6 +149,39 @@ class PlaceProductRequest(BaseModel):
     productId: str
     x: Optional[float] = None
     z: Optional[float] = None
+
+
+class GoalRequest(BaseModel):
+    goal: str
+    session_id: str = "default"
+
+
+class SimulateRequest(BaseModel):
+    actions: list
+
+
+class ScanFrameRequest(BaseModel):
+    image: str          # base64 JPEG/PNG
+    format: str = "jpeg"
+
+
+class ARPlaceRequest(BaseModel):
+    product_id: str
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    rotation: float = 0.0
+    scale: float = 1.0
+
+
+class ARCaptureRequest(BaseModel):
+    type: str = "photo"   # "photo" or "video"
+    data_url: str = ""
+
+
+class PreferenceSignalRequest(BaseModel):
+    signal_type: str
+    value: str
 
 
 # ─────────────────────── Helper ─────────────────────────────────────────────
@@ -244,10 +313,15 @@ async def get_projects():
 @app.post("/command")
 async def post_command(req: CommandRequest):
     global _room_state
-    if not req.command.strip():
+    # Support both text commands and structured action/params
+    if req.action:
+        command_str = f"{req.action} {json.dumps(req.params)}"
+    elif req.command.strip():
+        command_str = req.command.strip()
+    else:
         raise HTTPException(status_code=400, detail="Command cannot be empty")
     try:
-        new_state = await asyncio.to_thread(run_command, req.command.strip(), _room_state)
+        new_state = await asyncio.to_thread(run_command, command_str, _room_state)
         _room_state = new_state
         await _broadcast(_room_state)
         return {
@@ -543,7 +617,406 @@ async def import_blueprint(file: UploadFile = File(...)):
 app.include_router(ikea_router, prefix="")
 
 
+# ─── Phase 4A: Camera Scan ───────────────────────────────────────────────────
+
+@app.post("/scan/frame")
+async def scan_room_frame(req: ScanFrameRequest):
+    """Process a base64 camera frame through LLM vision and return room state updates."""
+    result = await asyncio.to_thread(scan_frame, req.image)
+    return result
+
+
+# ─── Phase 4B: Layout Intelligence ──────────────────────────────────────────
+
+@app.get("/score")
+async def get_layout_score():
+    """5-dimension layout quality score for the current room state."""
+    state = _build_scorer_state()
+    return score_layout(state)
+
+
+@app.get("/zones")
+async def get_functional_zones():
+    """Detect functional zones (living, sleep, work, dining) in the current room."""
+    state = _build_scorer_state()
+    return detect_zones(state)
+
+
+@app.post("/goal")
+async def set_design_goal(req: GoalRequest):
+    """Accept a high-level design goal and return a multi-step action plan."""
+    state = _build_scorer_state()
+    plan  = await asyncio.to_thread(plan_goal, req.goal, state)
+    # Record preference signal
+    record_signal(req.session_id, "goal_set", req.goal)
+    return plan
+
+
+@app.post("/simulate")
+async def simulate_actions(req: SimulateRequest):
+    """What-if simulation: apply actions to a state copy and return score delta."""
+    state  = _build_scorer_state()
+    result = await asyncio.to_thread(simulate, state, req.actions)
+    # Don't return full simulated_state in the response (too large)
+    result.pop("simulated_state", None)
+    return result
+
+
+@app.post("/autofix")
+async def autofix_layout():
+    """
+    Auto-fix the worst layout issues:
+      1. Score current layout
+      2. Find the lowest-scoring dimension
+      3. Generate targeted fix plan
+      4. Apply the plan
+    """
+    global _room_state
+    state = _build_scorer_state()
+    score = score_layout(state)
+
+    # Find worst dimension
+    dims   = score["dimensions"]
+    worst  = min(dims, key=lambda k: dims[k]["score"])
+    notes  = dims[worst]["notes"]
+    issues = " | ".join(n for n in notes if n.startswith(("⚠", "⛔")))
+
+    if not issues:
+        return {"message": "Layout is already in good shape!", "score": score, "actions_applied": 0}
+
+    goal = f"Fix these {worst.replace('_',' ')} issues: {issues[:200]}"
+    plan = await asyncio.to_thread(plan_goal, goal, state)
+
+    # Apply up to 5 actions from the plan
+    actions_applied = 0
+    for step in (plan.get("steps") or [])[:5]:
+        action  = step.get("action", "")
+        params  = step.get("params", {})
+        command = f"{action} {json.dumps(params)}"
+        try:
+            new_state = await asyncio.to_thread(run_command, command, _room_state)
+            _room_state = new_state
+            actions_applied += 1
+        except Exception:
+            pass
+
+    if actions_applied:
+        await _broadcast(_room_state)
+
+    new_score = score_layout(_build_scorer_state())
+    return {
+        "original_score":  score["overall"],
+        "new_score":       new_score["overall"],
+        "delta":           new_score["overall"] - score["overall"],
+        "actions_applied": actions_applied,
+        "plan":            plan,
+        "state":           _state_to_dict(_room_state),
+    }
+
+
+@app.get("/preference/{session_id}")
+async def get_preference_profile(session_id: str = "default"):
+    """Return the preference profile for a session."""
+    return get_preference_summary(session_id)
+
+
+@app.post("/preference/{session_id}/signal")
+async def post_preference_signal(session_id: str, req: PreferenceSignalRequest):
+    """Record a preference signal for a session."""
+    profile = record_signal(session_id, req.signal_type, req.value)
+    return {"recorded": True, "session_id": session_id}
+
+
+# ─── Phase 4D: AR Session Management ────────────────────────────────────────
+
+@app.post("/ar/session")
+async def create_ar_session():
+    """Create a new AR session. Returns session token."""
+    state   = _state_to_dict(_room_state)
+    session = create_session(room_state=state)
+    return {"token": session["token"], "expires_at": session["expires_at"]}
+
+
+@app.get("/ar/session/{token}")
+async def get_ar_session(token: str):
+    """Get an AR session by token."""
+    session = get_session(token)
+    if not session:
+        raise HTTPException(status_code=404, detail="AR session not found or expired")
+    return session
+
+
+@app.post("/ar/session/{token}/place")
+async def ar_place(token: str, req: ARPlaceRequest):
+    """Place a product in an AR session."""
+    placement = ar_place_product(token, req.product_id, req.x, req.y, req.z, req.rotation, req.scale)
+    if "error" in placement:
+        raise HTTPException(status_code=404, detail=placement["error"])
+    return placement
+
+
+@app.post("/ar/session/{token}/capture")
+async def ar_capture(token: str, req: ARCaptureRequest):
+    """Save an AR screenshot or recording to a session."""
+    result = ar_save_capture(token, req.type, req.data_url)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.get("/ar/session/{token}/qr")
+async def ar_qr(token: str, base_url: str = Query(default="http://localhost:8000")):
+    """Generate a QR code for cross-device AR session handoff."""
+    session = get_session(token)
+    if not session:
+        raise HTTPException(status_code=404, detail="AR session not found")
+    return generate_qr_code(token, base_url=base_url)
+
+
+@app.post("/ar/session/{token}/save-to-design")
+async def ar_save_to_design(token: str):
+    """Convert AR session placements into RoomState ADD actions and apply them."""
+    global _room_state
+    actions = session_to_room_state_actions(token)
+    if not actions:
+        return {"message": "No AR placements to commit.", "actions_applied": 0}
+
+    applied = 0
+    for action in actions:
+        try:
+            params  = action["params"]
+            command = f"ADD {json.dumps(params)}"
+            new_state = await asyncio.to_thread(run_command, command, _room_state)
+            _room_state = new_state
+            applied += 1
+        except Exception:
+            pass
+
+    await _broadcast(_room_state)
+    return {
+        "success":         True,
+        "actions_applied": applied,
+        "state":           _state_to_dict(_room_state),
+    }
+
+
+@app.get("/ar/product/{item_id}/preview")
+async def ar_product_preview(item_id: str):
+    """
+    Return AR preview data for an IKEA Egypt product:
+      - EGP price + all images (by type) + model_url for GLB AR viewer
+      - Dimensions for 1:1 scale placement
+    """
+    from backend.scraper.catalog_writer import IKEACatalogDB
+    db = IKEACatalogDB()
+    product = db.get_by_id(item_id)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product not found: {item_id}")
+    return {
+        "item_no":           product.get("item_no"),
+        "name":              product.get("name"),
+        "series":            product.get("series"),
+        "price":             product.get("price"),
+        "currency":          product.get("currency", "EGP"),
+        "image_url":         product.get("image_url"),
+        "image_urls":        product.get("image_urls", []),
+        "image_urls_by_type": product.get("image_urls_by_type", {}),
+        "model_url":         product.get("model_url", ""),
+        "width":             product.get("width"),
+        "depth":             product.get("depth"),
+        "height":            product.get("height"),
+        "color_variants":    product.get("color_variants", []),
+        "buy_url":           product.get("buy_url"),
+        "ar_ready":          bool(product.get("model_url")),
+    }
+
+
+# ─── Phase 4D: Product Catalog (EGP) ────────────────────────────────────────
+
+@app.get("/products/catalog")
+async def get_products_catalog(
+    category: str = Query(default="", description="Filter by furniture category"),
+    q:        str = Query(default="", description="Search query"),
+    limit:    int = Query(default=50,  ge=1, le=500),
+    min_price: float = Query(default=0),
+    max_price: float = Query(default=0),
+    in_stock:  bool  = Query(default=False),
+):
+    """
+    Query the IKEA Egypt SQLite catalog.
+    Returns products with EGP prices, image galleries, and model URLs.
+    """
+    from backend.scraper.catalog_writer import IKEACatalogDB
+    db = IKEACatalogDB()
+    products = db.search(
+        query=q,
+        category=category,
+        max_price=max_price,
+        min_price=min_price,
+        in_stock=in_stock,
+        limit=limit,
+    )
+    stats = db.catalog_stats()
+    return {
+        "products": products,
+        "total":    len(products),
+        "catalog_stats": stats,
+    }
+
+
+# ─── Helper ───────────────────────────────────────────────────────────────────
+
+def _build_scorer_state() -> dict:
+    """Build a scorer-compatible state dict from current _room_state."""
+    room    = _room_state.get("room", {})
+    objects = _room_state.get("objects", [])
+    windows = room.get("windows", [])
+    doors   = room.get("doors",   [])
+
+    # Normalise object format for scorer
+    scorer_objects = []
+    for obj in objects:
+        w, d = (obj.get("size") or [1.0, 1.0]) + [1.0, 1.0]
+        scorer_objects.append({
+            "id":       obj.get("id", "?"),
+            "type":     obj.get("type", "?"),
+            "x":        float(obj.get("x", 0)),
+            "z":        float(obj.get("z", 0)),
+            "size":     [float(w), float(d)],
+            "height":   float(obj.get("height", obj.get("h", 0.85))),
+            "rotation": float(obj.get("rotation", 0)),
+        })
+    return {
+        "objects":  scorer_objects,
+        "width":    float(room.get("width",  10)),
+        "depth":    float(room.get("height", 8)),
+        "windows":  windows,
+        "doors":    doors,
+        "style":    _room_state.get("style", {}),
+    }
+
+
+# ─── Phase 4C: Floor Plan Editor ─────────────────────────────────────────────
+
+from backend.floorplan.canvas_sync import (
+    canvas_to_actions, room_state_to_canvas,
+    list_templates, get_template,
+)
+from backend.floorplan.wall_builder import build_walls, infer_walls_from_room
+from backend.floorplan.material_store import list_materials
+
+
+class FloorplanSyncRequest(BaseModel):
+    canvas_json:    dict  = {}
+    room_width_cm:  float = 500.0
+    room_depth_cm:  float = 400.0
+
+
+class WallsRequest(BaseModel):
+    walls: list                    # list of wall dicts from canvas
+
+
+@app.post("/floorplan/sync")
+async def floorplan_sync(req: FloorplanSyncRequest):
+    """
+    Receive Fabric.js canvas JSON, extract furniture positions as RoomState actions,
+    apply them, and return an updated canvas JSON.
+    """
+    global _room_state
+    actions = canvas_to_actions(req.canvas_json, req.room_width_cm, req.room_depth_cm)
+
+    applied = 0
+    for act in actions:
+        try:
+            command = f"{act['action']} {json.dumps(act['params'])}"
+            new_state = await asyncio.to_thread(run_command, command, _room_state)
+            _room_state = new_state
+            applied += 1
+        except Exception:
+            pass
+
+    if applied:
+        await _broadcast(_room_state)
+
+    return {
+        "actions_applied": applied,
+        "canvas_json":     room_state_to_canvas(_state_to_dict(_room_state)),
+        "state":           _state_to_dict(_room_state),
+    }
+
+
+@app.post("/floorplan/walls")
+async def build_wall_geometry(req: WallsRequest):
+    """Convert 2D canvas walls into 3D geometry descriptors for Three.js rendering."""
+    result = await asyncio.to_thread(build_walls, req.walls)
+    return result
+
+
+@app.get("/floorplan/walls/auto")
+async def auto_generate_walls():
+    """Auto-generate the 4 perimeter walls from the current room dimensions."""
+    room = _room_state.get("room", {})
+    w    = float(room.get("width",  5.0))
+    d    = float(room.get("height", 4.0))
+    windows = room.get("windows", [])
+    doors   = room.get("doors",   [])
+    walls   = infer_walls_from_room(w, d, doors=doors, windows=windows)
+    return await asyncio.to_thread(build_walls, walls)
+
+
+@app.get("/floorplan/export")
+async def export_floorplan(format: str = Query(default="png", description="png | svg | pdf")):
+    """
+    Server-side floor plan export.
+    For PDF: returns a plain PNG (full server-side PDF needs reportlab/weasyprint).
+    """
+    import io
+    if format not in ("png", "svg", "pdf"):
+        raise HTTPException(status_code=400, detail="format must be png, svg, or pdf")
+
+    # Build canvas from current state
+    canvas_json = room_state_to_canvas(_state_to_dict(_room_state))
+
+    # For now return canvas JSON (frontend handles actual rendering)
+    return {
+        "format":      format,
+        "canvas_json": canvas_json,
+        "note":        "Use client-side export for rendered output",
+    }
+
+
+@app.get("/templates")
+async def get_templates():
+    """List all available room layout templates."""
+    return {"templates": list_templates()}
+
+
+@app.get("/templates/{template_id}")
+async def get_single_template(template_id: str):
+    """Return a full room layout template (with object list)."""
+    t = get_template(template_id)
+    if not t:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    return t
+
+
+@app.get("/materials")
+async def get_all_materials():
+    """Return all available material swatches (floors, walls, furniture)."""
+    return list_materials()
+
+
+@app.get("/materials/{category}")
+async def get_materials_by_category(category: str):
+    """Return materials for a specific category: floors | walls | furniture."""
+    all_mats = list_materials()
+    if category not in all_mats:
+        raise HTTPException(status_code=404, detail=f"Category '{category}' not found. Use: floors, walls, furniture")
+    return {category: all_mats[category]}
+
+
 # ─────────────────────── Static files ───────────────────────────────────────
+
 
 if os.path.isdir(_FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=_FRONTEND_DIR), name="static")

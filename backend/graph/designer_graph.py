@@ -165,6 +165,10 @@ def action_dispatcher_node(state: RoomState) -> RoomState:
     elif action_type == "SET_ROOM_DIMENSIONS":
         return handle_set_room_dimensions(state, action)
 
+    elif action_type == "SET_ROOM_SHAPE":
+        from backend.actions.project import handle_set_room_shape
+        return handle_set_room_shape(state, action)
+
     elif action_type == "ADD_WINDOW":
         return handle_add_opening(state, action, "window")
 

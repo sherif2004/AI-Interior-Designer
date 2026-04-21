@@ -150,17 +150,18 @@ class IKEAProduct:
     depth:        float = 0.0
     height:       float = 0.0
 
-    # Pricing (USD)
+    # Pricing (native currency — EGP for Egypt)
     price:        float = 0.0
     price_low:    float = 0.0
     price_high:   float = 0.0
-    currency:     str = "USD"
+    currency:     str = "EGP"
 
     # Physical
     weight_kg:    float = 0.0
     color:        str = ""
     material:     str = ""
     colors:       list = field(default_factory=list)  # all available colors
+    color_variants: list = field(default_factory=list)  # [{id, name, imageUrl, price, pipUrl}]
 
     # Spatial rules (meters)
     min_clearance: float = 0.6
@@ -168,8 +169,12 @@ class IKEAProduct:
     # Commerce
     in_stock:     bool = True
     image_url:    str = ""
-    image_urls:   list = field(default_factory=list)
+    image_urls:   list = field(default_factory=list)  # all image URLs (flat list)
+    image_urls_by_type: dict = field(default_factory=dict)  # {type: [url, ...]}
     buy_url:      str = ""
+
+    # 3D / AR
+    model_url:    str = ""   # GLB/glTF URL for AR viewer (populated by ikea_model_fetcher)
 
     # Source metadata
     source:       str = "ikea"
@@ -244,39 +249,104 @@ class IKEAResponseParser:
         return "USD"
 
     @staticmethod
-    def parse_images(raw: dict, cc: str, lang: str) -> tuple[str, list]:
-        """Return (primary_image_url, all_image_urls)."""
-        images = raw.get("images", []) or []
-        urls   = []
+    def parse_images(raw: dict, cc: str, lang: str) -> tuple[str, list, dict]:
+        """
+        Return (primary_image_url, all_image_urls_flat, image_urls_by_type).
 
-        for img in images:
-            src = (
-                img.get("href")
-                or img.get("url")
-                or img.get("src")
-                or ""
-            )
-            if src and src not in urls:
-                urls.append(src)
+        Uses allProductImage array (IKEA Egypt API) which includes typed images:
+          MAIN_PRODUCT_IMAGE, CONTEXT_PRODUCT_IMAGE, QUALITY_PRODUCT_IMAGE,
+          FUNCTIONAL_PRODUCT_IMAGE, CUT_THROUGH_PRODUCT_IMAGE
+        """
+        # Prefer allProductImage (detailed, typed — present in Egypt API response)
+        all_product_images = raw.get("allProductImage", []) or []
+        by_type: dict[str, list[str]] = {}
+        urls: list[str] = []
+
+        for img in all_product_images:
+            src     = img.get("url") or img.get("href") or img.get("src") or ""
+            img_type = img.get("type", "UNKNOWN")
+            if src:
+                if src not in urls:
+                    urls.append(src)
+                by_type.setdefault(img_type, [])
+                if src not in by_type[img_type]:
+                    by_type[img_type].append(src)
+
+        # Fallback: try generic images array
+        if not urls:
+            for img in (raw.get("images", []) or []):
+                src = img.get("href") or img.get("url") or img.get("src") or ""
+                if src and src not in urls:
+                    urls.append(src)
+
+        # Fallback: mainImageUrl field (always present in search results)
+        main_url = raw.get("mainImageUrl", "") or ""
+        if main_url and main_url not in urls:
+            urls.insert(0, main_url)
+            by_type.setdefault("MAIN_PRODUCT_IMAGE", [])
+            if main_url not in by_type["MAIN_PRODUCT_IMAGE"]:
+                by_type["MAIN_PRODUCT_IMAGE"].insert(0, main_url)
 
         # Fallback: construct from product ID
         if not urls:
             item_no = str(raw.get("id", "") or "").replace(".", "")
             if item_no:
-                # Country/lang is not always required for image CDN paths, but keep it consistent.
-                # This fallback is mostly used when the API doesn't include images.
-                cc = (cc or "us").strip().lower()
+                cc   = (cc   or "eg").strip().lower()
                 lang = (lang or "en").strip().lower()
-                urls = [f"https://www.ikea.com/{cc}/{lang}/images/products/{item_no}__main.jpg"]
+                fb   = f"https://www.ikea.com/{cc}/{lang}/images/products/{item_no}__main.jpg"
+                urls = [fb]
+                by_type["MAIN_PRODUCT_IMAGE"] = [fb]
 
-        return (urls[0] if urls else ""), urls
+        primary = urls[0] if urls else ""
+        return primary, urls, by_type
+
+    @staticmethod
+    def parse_color_variants(raw: dict) -> list[dict]:
+        """
+        Extract color/cover variants from gprDescription.variants.
+        Returns list of {id, name, image_url, price, pip_url} dicts.
+        """
+        gpr = raw.get("gprDescription", {}) or {}
+        variants_raw = gpr.get("variants", []) or []
+        variants = []
+        for v in variants_raw:
+            price_obj = v.get("salesPrice", {}) or {}
+            variants.append({
+                "id":        v.get("id", ""),
+                "name":      v.get("validDesignText", v.get("name", "")),
+                "image_url": v.get("imageUrl", v.get("mainImageUrl", "")),
+                "price":     float(price_obj.get("numeral", 0) or 0),
+                "currency":  price_obj.get("currencyCode", "EGP"),
+                "pip_url":   v.get("pipUrl", ""),
+            })
+        return variants
+
+    @staticmethod
+    def parse_model_url(raw: dict) -> str:
+        """
+        Attempt to find a GLB/glTF 3D model URL in the product data.
+        IKEA embeds model URLs in some response fields for 3D-enabled products.
+        Returns empty string if not found (model fetcher runs separately).
+        """
+        # Check known fields where IKEA sometimes embeds 3D asset references
+        for key in ("modelUrl", "model_url", "3dModelUrl", "glbUrl"):
+            val = raw.get(key, "")
+            if val and (".glb" in val or ".gltf" in val):
+                return val
+        return ""
 
     @classmethod
     def parse_product(cls, raw: dict, category_key: str, cc: str, lang: str) -> IKEAProduct:
         """Convert one raw IKEA API product dict into an IKEAProduct."""
         from datetime import datetime, timezone
 
-        item_no     = str(raw.get("id", "") or "").replace(".", "")
+        item_no     = str(raw.get("id", "") or "").replace(".", "").replace("s", "", 1) if str(raw.get("id", "")).startswith("s") else str(raw.get("id", "") or "").replace(".", "")
+        # Normalize: IKEA Egypt sometimes prefixes IDs with 's' for SPR types
+        raw_id = str(raw.get("id", "") or "")
+        item_no = raw_id.lstrip("s").replace(".", "") if raw_id.startswith("s") else raw_id.replace(".", "")
+        # Use itemNoGlobal if available (cleaner)
+        item_no = str(raw.get("itemNoGlobal") or raw.get("itemNo") or item_no).replace(".", "")
+
         name        = raw.get("name", "")         or ""
         description = raw.get("typeName", "")     or ""
         series      = (name.split(" ")[0] if name else "").upper()
@@ -295,34 +365,51 @@ class IKEAResponseParser:
         price, price_low, price_high = cls.parse_price(raw)
         currency = cls.parse_currency(raw)
 
-        # Images
-        primary_img, all_imgs = cls.parse_images(raw, cc=cc, lang=lang)
+        # Images — now returns 3-tuple with by_type dict
+        primary_img, all_imgs, imgs_by_type = cls.parse_images(raw, cc=cc, lang=lang)
 
-        # Color
-        main_color_block = raw.get("mainImageAlt", "") or ""
-        color = raw.get("contextualImageAlt", "") or main_color_block
+        # Color variants (e.g. different covers/finishes)
+        color_variants = cls.parse_color_variants(raw)
 
-        # Stock
-        stock = raw.get("availability", {}) or {}
-        in_stock = stock.get("available", True)
+        # 3D model URL (usually empty from search API; enriched later by ikea_model_fetcher)
+        model_url = cls.parse_model_url(raw)
 
-        # URL
+        # Color: prefer validDesignText (e.g. "Knisa light grey")
+        color = (
+            raw.get("validDesignText", "")
+            or raw.get("mainImageAlt", "")
+            or ""
+        )
+        colors_list = raw.get("colors", []) or []
+        colors_names = [c.get("name", "") for c in colors_list if isinstance(c, dict) and c.get("name")]
+
+        # Stock — check availability array (Egypt API format)
+        avail_list = raw.get("availability", []) or []
+        if isinstance(avail_list, list):
+            # HIGH_IN_STOCK, LOW_IN_STOCK, OUT_OF_STOCK
+            in_stock = any(
+                str(a.get("status", "")).upper() not in ("OUT_OF_STOCK", "NOT_AVAILABLE")
+                for a in avail_list
+                if isinstance(a, dict)
+            ) if avail_list else raw.get("onlineSellable", True)
+        else:
+            in_stock = bool(avail_list.get("available", True))
+
+        # URL — pipUrl in Egypt API is already a full HTTPS URL
         pip = (raw.get("pipUrl", "") or "").strip()
         if pip.startswith("http://") or pip.startswith("https://"):
             buy_url = pip
         elif pip.startswith("/"):
             buy_url = "https://www.ikea.com" + pip
         elif pip:
-            # pipUrl is usually a path like "some-product-name-12345678/"
             buy_url = f"https://www.ikea.com/{cc}/{lang}/p/{pip.strip('/')}/"
         else:
             buy_url = f"https://www.ikea.com/{cc}/{lang}/search/?q={item_no}"
 
-        # Clean up accidental double prefixes if source already included "/{cc}/{lang}/p/"
         buy_url = buy_url.replace("https://www.ikea.com/https://www.ikea.com/", "https://www.ikea.com/")
 
-        # Min clearance heuristic: larger furniture needs more walkway
-        size_metric = max(w, d)
+        # Min clearance heuristic
+        size_metric   = max(w, d)
         min_clearance = 0.9 if size_metric > 1.5 else 0.6
 
         return IKEAProduct(
@@ -342,11 +429,14 @@ class IKEAResponseParser:
             currency=currency,
             weight_kg=float(raw.get("weight", 0) or 0),
             color=color,
-            colors=[color] if color else [],
+            colors=colors_names or ([color] if color else []),
+            color_variants=color_variants,
             min_clearance=min_clearance,
             in_stock=bool(in_stock),
             image_url=primary_img,
             image_urls=all_imgs,
+            image_urls_by_type=imgs_by_type,
+            model_url=model_url,
             buy_url=buy_url,
             scraped_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -388,7 +478,7 @@ class IKEAScraper:
 
     def __init__(
         self,
-        cc:      str   = "us",
+        cc:      str   = "eg",
         lang:    str   = "en",
         rate:    float = 2.0,
         page_sz: int   = 24,

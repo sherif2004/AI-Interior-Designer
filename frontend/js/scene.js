@@ -186,13 +186,34 @@ export function buildRoom(roomData) {
   const wallStyle = roomData.wall_style || {};
 
   // Floor
-  const floorGeo = new THREE.PlaneGeometry(rw, rh);
   const floorMat = createSurfaceMaterial(floorStyle.color || '#1a2240', floorStyle.material || 'wood', true);
-  floorMesh = new THREE.Mesh(floorGeo, floorMat);
-  floorMesh.rotation.x = -Math.PI / 2;
-  floorMesh.position.set(rw / 2, 0, rh / 2);
-  floorMesh.receiveShadow = true;
-  scene.add(floorMesh);
+  
+  if (roomData.floor_polygon && roomData.floor_polygon.length > 2) {
+    // Custom shape floor
+    const shape = new THREE.Shape();
+    roomData.floor_polygon.forEach((pt, idx) => {
+      // translate from center (0,0) to center (rw/2, rh/2)
+      const px = (pt.x * SCALE) + (rw / 2);
+      const pz = (pt.z * SCALE) + (rh / 2);
+      if (idx === 0) shape.moveTo(px, -pz); // three.js shapes are drawn in XY, we rotate to XZ later so y becomes -z essentially
+      else shape.lineTo(px, -pz);
+    });
+    
+    const floorGeo = new THREE.ShapeGeometry(shape);
+    floorMesh = new THREE.Mesh(floorGeo, floorMat);
+    floorMesh.rotation.x = -Math.PI / 2;
+    floorMesh.position.set(0, 0, 0); // shape points are already in target world coords 
+    floorMesh.receiveShadow = true;
+    scene.add(floorMesh);
+  } else {
+    // Basic rectangular floor
+    const floorGeo = new THREE.PlaneGeometry(rw, rh);
+    floorMesh = new THREE.Mesh(floorGeo, floorMat);
+    floorMesh.rotation.x = -Math.PI / 2;
+    floorMesh.position.set(rw / 2, 0, rh / 2);
+    floorMesh.receiveShadow = true;
+    scene.add(floorMesh);
+  }
 
   // Grid
   gridHelper = new THREE.GridHelper(
@@ -207,22 +228,51 @@ export function buildRoom(roomData) {
 
   // Walls
   const wallMat = createSurfaceMaterial(wallStyle.color || '#2a3a6a', wallStyle.material || 'paint', false);
-  const walls = [
-    { pos: [rw / 2, wallH / 2, 0],       size: [rw, wallH, wallT] },  // north
-    { pos: [rw / 2, wallH / 2, rh],      size: [rw, wallH, wallT] },  // south
-    { pos: [0,      wallH / 2, rh / 2],  size: [wallT, wallH, rh] },  // west
-    { pos: [rw,     wallH / 2, rh / 2],  size: [wallT, wallH, rh] },  // east
-  ];
-  for (const w of walls) {
-    const geo = new THREE.BoxGeometry(...w.size);
-    const mesh = new THREE.Mesh(geo, wallMat);
-    mesh.position.set(...w.pos);
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-    wallMeshes.push(mesh);
+  
+  if (roomData.walls && roomData.walls.length > 0) {
+    // Parse backend wall blocks
+    for (const w of roomData.walls) {
+      if (!w.geometry) continue;
+      const geo = new THREE.BoxGeometry(
+        w.geometry.dimensions.width * SCALE,
+        w.geometry.dimensions.height * SCALE,
+        w.geometry.dimensions.depth * SCALE
+      );
+      const mesh = new THREE.Mesh(geo, wallMat);
+      
+      // wall pos relative to center, translate to bottom right
+      const px = (w.geometry.position.x * SCALE) + (rw / 2);
+      const py = w.geometry.position.y * SCALE;
+      const pz = (w.geometry.position.z * SCALE) + (rh / 2);
+      
+      mesh.position.set(px, py, pz);
+      mesh.rotation.y = w.geometry.rotation_y * (Math.PI / 180);
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      wallMeshes.push(mesh);
+      
+      // NOTE: Openings for custom walls could be handled via CSG (ThreeBSP) in the future.
+      // For now we render solid walls.
+    }
+  } else {
+    // Basic rectangle walls
+    const walls = [
+      { pos: [rw / 2, wallH / 2, 0],       size: [rw, wallH, wallT] },  // north
+      { pos: [rw / 2, wallH / 2, rh],      size: [rw, wallH, wallT] },  // south
+      { pos: [0,      wallH / 2, rh / 2],  size: [wallT, wallH, rh] },  // west
+      { pos: [rw,     wallH / 2, rh / 2],  size: [wallT, wallH, rh] },  // east
+    ];
+    for (const w of walls) {
+      const geo = new THREE.BoxGeometry(...w.size);
+      const mesh = new THREE.Mesh(geo, wallMat);
+      mesh.position.set(...w.pos);
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      wallMeshes.push(mesh);
+    }
+    
+    buildOpenings(roomData, rw, rh, wallH);
   }
-
-  buildOpenings(roomData, rw, rh, wallH);
 
   controls.target.set(rw / 2, 0, rh / 2);
   camera.position.set(rw / 2, Math.max(rw, rh) * 0.9, rh * 1.4);
