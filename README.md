@@ -2,7 +2,7 @@
 
 ### Stateful Embodied LLM for Real-Time Home Design, AR Visualization & Autonomous Layout Intelligence
 
-![Phase](https://img.shields.io/badge/Phase-1--4_Complete_|_5--6_Planned-7c3aed?style=flat-square)
+![Phase](https://img.shields.io/badge/Phase-1--4_Complete_|_5.1_and_5.3_v1_Complete-7c3aed?style=flat-square)
 ![Stack](https://img.shields.io/badge/Stack-FastAPI_%7C_LangGraph_%7C_Three.js_%7C_WebXR-0ea5e9?style=flat-square)
 ![LLM](https://img.shields.io/badge/LLM-OpenRouter-f5c842?style=flat-square)
 ![AR](https://img.shields.io/badge/AR-WebXR_%7C_ARKit_%7C_ARCore-22d3a5?style=flat-square)
@@ -28,6 +28,32 @@ Instead of generating a full layout at once, the system:
 - Acts as an **embodied AI agent** operating inside a physical spatial environment
 
 This transforms the LLM from a passive generator into an **active goal-driven designer** — a practical tool for real home planning that surpasses both IKEA Place and Planner 5D.
+
+---
+
+## 🆕 Recent Updates (UI + Phase 5.1/5.3 v1)
+
+### Planner5D-like UI (polish)
+
+- **Consistent `p5d-*` workspace styling** (topbar, left rail, panels, canvas, right panel)
+- **Inspector panel** (right): shows selected object + quick focus control
+- New left-panel tabs:
+  - **📷 Room Scan** (photo preview/apply)
+  - **🎙️ Voice** (Web Speech API → text commands)
+  - **✏️ Sketch** (draw → preview/apply)
+
+### Phase 5.1 (v1) — Photo scan → RoomState
+
+- `POST /import/photo/preview` *(multipart file)* → scan result + proposed actions (no mutation)
+- `POST /import/photo` *(multipart file)* → applies extracted actions to `RoomState` + broadcasts over WebSocket
+- `POST /style/detect` *(optional multipart file)* → style from photo or best-effort from current state
+
+### Phase 5.3 (v1) — Voice + Sketch
+
+- **Voice**: `frontend/js/voice_input.js` uses Web Speech API to feed the existing command line.
+- `POST /voice/command` *(JSON `{text, session_id}`)* executes already-transcribed commands (text-only v1).
+- **Sketch**: `frontend/js/sketch_input.js` provides a simple sketch canvas modal.
+- `POST /import/sketch?apply=0|1` *(JSON `{image: <dataURL/base64>}`)* returns scan/actions, and optionally applies them.
 
 ---
 
@@ -488,7 +514,7 @@ The single biggest differentiator over both IKEA Place and Planner 5D: **photogr
 **New API endpoints:**
 ```
 POST /import/photo              ← upload room photo → extract full RoomState
-GET  /import/photo/preview      ← preview extracted state before applying
+POST /import/photo/preview      ← preview extracted state before applying
 POST /style/detect              ← detect aesthetic from photo or current state
 POST /scan/frame                ← live camera frame → partial state update
 ```
@@ -545,7 +571,7 @@ backend/catalog/
 
 **New API endpoints:**
 ```
-POST /voice/command
+POST /voice/command             ← v1 text-only (transcript) endpoint
 POST /import/inspiration
 POST /import/sketch
 ```
@@ -866,17 +892,17 @@ Every item includes: `size`, `color`, `height`, `price_low`, `price_high`, `weig
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/import/photo` | Room photo → full state extraction |
-| `GET` | `/import/photo/preview` | Preview extracted state |
+| `POST` | `/import/photo` | Room photo → scan + apply extracted actions |
+| `POST` | `/import/photo/preview` | Preview extracted scan/actions (no state mutation) |
 | `POST` | `/style/detect` | Detect aesthetic from photo or state |
 | `GET` | `/products/search` | Multi-retailer semantic search |
 | `GET` | `/products/substitute/{id}` | Spatially-valid alternatives |
 | `GET` | `/products/bundle` | Money-saving bundle suggestions |
 | `GET` | `/products/availability` | Live stock + store locator |
 | `GET` | `/budget/financing?months=12` | Monthly payment breakdown |
-| `POST` | `/voice/command` | Audio blob → executed command |
+| `POST` | `/voice/command` | Transcript text → executed command (v1) |
 | `POST` | `/import/inspiration` | Inspiration photo → style transfer |
-| `POST` | `/import/sketch` | Hand-drawn floor plan → room state |
+| `POST` | `/import/sketch` | Sketch image (dataURL/base64) → scan/actions (+ optional apply) |
 | `POST` | `/render/video` | Cinematic walkthrough video |
 | `POST` | `/furniture/{id}/material` | Live material swap |
 | `POST` | `/share` | Generate shareable link |
@@ -1160,9 +1186,9 @@ Find a similar sofa but under $300
 | Phase 4B | ✅ Complete | Goal planner, scoring, autonomous design | — |
 | Phase 4C | ✅ Complete | Professional 2D drag-and-drop floor plan editor | **Planner 5D** |
 | Phase 4D | ✅ Complete | Life-size 1:1 product AR + product-first shopping | **IKEA Place** |
-| Phase 5.1 | 🔄 Next | Room photo → full state import | — |
+| Phase 5.1 | ✅ v1 Complete | Room photo → state import (preview/apply) | — |
 | Phase 5.2 | 📋 Planned | Multi-retailer commerce engine | — |
-| Phase 5.3 | 📋 Planned | Voice + multimodal input | — |
+| Phase 5.3 | ✅ v1 Complete | Voice (Web Speech transcript) + Sketch import (v1) | — |
 | Phase 5.4 | 📋 Planned | First-person walkthrough + video export | — |
 | Phase 5.5 | 📋 Planned | Collaboration + professional export | Planner 5D Pro |
 | Phase 5.6 | 📋 Planned | Multi-room + whole-home planning | Planner 5D |

@@ -2,6 +2,7 @@
  * Furniture mesh factory — creates 3D representations for each furniture type.
  */
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const SCALE = 0.5; // 1 meter → 0.5 THREE units
 
@@ -80,35 +81,91 @@ export function createFurnitureMesh(obj) {
   const h = obj.height * SCALE;
   const color = new THREE.Color(obj.color);
 
+  const placeholder = new THREE.Group();
   switch (obj.type) {
     case 'bed':
     case 'single_bed':
-      _buildBed(group, w, d, h, color);
+      _buildBed(placeholder, w, d, h, color);
       break;
     case 'sofa':
-      _buildSofa(group, w, d, h, color);
+      _buildSofa(placeholder, w, d, h, color);
       break;
     case 'wardrobe':
-      _buildWardrobe(group, w, d, h, color);
+      _buildWardrobe(placeholder, w, d, h, color);
       break;
     case 'bookshelf':
-      _buildBookshelf(group, w, d, h, color);
+      _buildBookshelf(placeholder, w, d, h, color);
       break;
     case 'desk':
-      _buildDesk(group, w, d, h, color);
+      _buildDesk(placeholder, w, d, h, color);
       break;
     case 'lamp':
-      _buildLamp(group, w, d, h, color);
+      _buildLamp(placeholder, w, d, h, color);
       break;
     case 'plant':
-      _buildPlant(group, w, d, h, color);
+      _buildPlant(placeholder, w, d, h, color);
       break;
     default:
-      _buildBox(group, w, d, h, color);
+      _buildBox(placeholder, w, d, h, color);
   }
 
   // If this object came from IKEA (or has an image), stamp its product photo onto the mesh.
-  _applyProductTexture(group, obj, w, d, h);
+  _applyProductTexture(placeholder, obj, w, d, h);
+  group.add(placeholder);
+
+  if (obj.model_url) {
+    const loader = new GLTFLoader();
+    const modelUrl = (() => {
+      const u = String(obj.model_url || '').trim();
+      if (!u) return u;
+      if (u.startsWith('/')) return u;
+      if (u.startsWith('http://') || u.startsWith('https://')) return `/model?u=${encodeURIComponent(u)}`;
+      return u;
+    })();
+    loader.load(
+      modelUrl,
+      (gltf) => {
+        const model = gltf.scene;
+
+        // Ensure shadows
+        model.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+
+        // Compute original bounding box
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+
+        if (size.x > 0 && size.y > 0 && size.z > 0) {
+          // Scale to target dimensions
+          model.scale.set(w / size.x, h / size.y, d / size.z);
+          
+          // Recompute bounding box after scale
+          const newBox = new THREE.Box3().setFromObject(model);
+          const newSize = newBox.getSize(new THREE.Vector3());
+          const newCenter = newBox.getCenter(new THREE.Vector3());
+
+          // Shift model so its exact center aligns with local (0,0,0)
+          // because our placeholders extend from -w/2 to w/2, and -h/2 to h/2 locally.
+          model.position.x -= newCenter.x;
+          model.position.y -= newCenter.y;
+          model.position.z -= newCenter.z;
+        }
+
+        // Swap
+        group.remove(placeholder);
+        group.add(model);
+      },
+      undefined,
+      (error) => {
+        console.warn(`[GLTF] Failed to load 3D model for ${obj.id}:`, error);
+        // On failure, the placeholder simply remains.
+      }
+    );
+  }
 
   // Position: center of object in X/Z, bottom at Y=0
   group.position.set(

@@ -73,6 +73,84 @@ export async function importBlueprint(file) {
   return res.json();
 }
 
+// ─────────────────────── Phase 5.1: Photo Import / Style Detect ──────────────
+
+async function _postFile(path, file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${BASE}${path}`, { method: 'POST', body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function importPhotoPreview(file) { return _postFile('/import/photo/preview', file); }
+export async function importPhoto(file) { return _postFile('/import/photo', file); }
+export async function detectStyleFromPhoto(file) { return _postFile('/style/detect', file); }
+export async function detectStyleFromState() { return _post('/style/detect', {}); }
+
+// ─────────────────────── Phase 5.3: Voice (v1 text) ─────────────────────────
+
+export async function voiceCommand(text, session_id = 'default') {
+  return _post('/voice/command', { text, session_id });
+}
+
+// ─────────────────────── Phase 5.3: Sketch (v1 image) ───────────────────────
+
+export async function importSketch(imageDataUrl, apply = false) {
+  return _post(`/import/sketch?apply=${apply ? '1' : '0'}`, { image: imageDataUrl });
+}
+
+// ─────────────────────── Phase 5.2: Commerce ────────────────────────────────
+
+export async function multiRetailerSearch({ q = '', budget = 0, style = '', retailers = 'ikea', limit = 50 } = {}) {
+  const params = new URLSearchParams();
+  if (q) params.append('q', q);
+  if (budget) params.append('budget', String(budget));
+  if (style) params.append('style', style);
+  if (retailers) params.append('retailers', retailers);
+  if (limit) params.append('limit', String(limit));
+  return _get(`/products/search?${params.toString()}`);
+}
+
+export async function getAvailability({ ids = '', retailer = 'ikea' } = {}) {
+  const params = new URLSearchParams();
+  if (ids) params.append('ids', ids);
+  if (retailer) params.append('retailer', retailer);
+  return _get(`/products/availability?${params.toString()}`);
+}
+
+export async function getBundles() { return _get('/products/bundle'); }
+export async function getSustainability(productId) { return _get(`/products/sustainability/${encodeURIComponent(productId)}`); }
+
+// ─────────────────────── Phase 5.5: Share / Comments / Export ────────────────
+
+export async function createShare(role = 'view') { return _post('/share', { role }); }
+export async function listComments() { return _get('/comments'); }
+export async function addComment({ text, x = 0, y = 0, z = 0, object_id = '' }) {
+  return _post('/comments', { text, x, y, z, object_id });
+}
+
+export async function exportMaterials() { return _get('/export/materials'); }
+export async function exportDxf() {
+  const res = await fetch(`${BASE}/export/dxf`, { method: 'POST' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.blob();
+}
+
+// ─────────────────────── Phase 5.6: Home (Multi-room) ───────────────────────
+
+export async function homeAddRoom({ room_id = '', name = '' } = {}) {
+  return _post('/home/rooms', { room_id, name });
+}
+export async function homeConnect({ a, b, type = 'door' }) {
+  return _post('/home/connect', { a, b, type });
+}
+export async function homeBudget() { return _get('/home/budget'); }
+export async function homeFlow() { return _get('/home/flow'); }
+
 // ─────────────────────── Phase 3: Products ──────────────────────────────────
 
 export async function getProducts(type, budget = null) {

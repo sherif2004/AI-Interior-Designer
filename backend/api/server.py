@@ -54,6 +54,8 @@ from backend.llm.image_renderer import render_image, build_render_prompt
 from backend.blueprint_import.blueprint_parser import parse_blueprint
 from backend.api.ikea_routes import router as ikea_router
 from backend.catalog.product_search import get_product_by_id
+from backend.catalog.multi_retailer import search_multi_retailer
+from backend.catalog.sustainability_scorer import sustainability_score
 from backend.actions.add import handle_add
 
 # Phase 4B — Layout intelligence
@@ -62,6 +64,11 @@ from backend.engine.zoning import detect_zones
 from backend.planner.goal_planner import plan_goal
 from backend.planner.what_if_engine import simulate
 from backend.planner.preference_store import record_signal, get_preference_summary
+from backend.collab.share_manager import create_share, load_share
+from backend.collab.comment_store import add_comment, list_comments
+from backend.export.material_takeoff import compute_takeoff
+from backend.export.dxf_exporter import export_room_dxf
+from backend.storage.home_store import load_home, save_home
 
 # Phase 4A + 4D — AR & vision
 from backend.vision.live_scanner import scan_frame
@@ -183,6 +190,38 @@ class PreferenceSignalRequest(BaseModel):
     signal_type: str
     value: str
 
+class ApplyActionsRequest(BaseModel):
+    actions: list = []
+
+class VoiceCommandRequest(BaseModel):
+    text: str = ""
+    session_id: str = "default"
+
+class SketchImportRequest(BaseModel):
+    image: str = ""   # dataURL or base64 payload
+
+class RetailerSearchResponse(BaseModel):
+    products: list = []
+
+class ShareRequest(BaseModel):
+    role: str = "view"
+
+class CommentRequest(BaseModel):
+    text: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    object_id: str = ""
+
+class HomeAddRoomRequest(BaseModel):
+    room_id: str = ""
+    name: str = ""
+
+class HomeConnectRequest(BaseModel):
+    a: str
+    b: str
+    type: str = "door"
+
 
 # ─────────────────────── Helper ─────────────────────────────────────────────
 
@@ -200,6 +239,35 @@ def _state_to_dict(state: RoomState) -> dict:
         "clearance_warnings": state.get("clearance_warnings", []),
         "accessibility_score": state.get("accessibility_score", 100),
     }
+
+def _summarize_actions(actions: list) -> dict:
+    """Lightweight summary for preview UIs."""
+    counts: dict[str, int] = {}
+    for a in (actions or []):
+        t = str(a.get("action") or a.get("type") or "").upper() or "UNKNOWN"
+        counts[t] = counts.get(t, 0) + 1
+    return {"total_actions": sum(counts.values()), "by_type": counts}
+
+async def _apply_actions(actions: list) -> int:
+    """Apply a list of {action, params} to the global RoomState."""
+    global _room_state
+    applied = 0
+    for a in (actions or []):
+        action = (a.get("action") or a.get("type") or "").strip().upper()
+        params = a.get("params") or {}
+        if not action:
+            continue
+        command = f"{action} {json.dumps(params)}"
+        try:
+            new_state = await asyncio.to_thread(run_command, command, _room_state)
+            _room_state = new_state
+            applied += 1
+        except Exception:
+            # best-effort apply; failures are ignored so partial scans can still help
+            pass
+    if applied:
+        await _broadcast(_room_state)
+    return applied
 
 
 # ─────────────────────── Core Routes ────────────────────────────────────────
@@ -299,15 +367,268 @@ async def proxy_image(u: str = Query(..., description="Remote image URL to proxy
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Image proxy error: {str(e)}")
 
+@app.get("/model")
+async def proxy_model(u: str = Query(..., description="Remote GLB/GLTF URL to proxy")):
+    """
+    Proxy remote 3D models (GLB/GLTF) through this backend to avoid CORS/hotlink issues.
+    Basic allowlist: ikea.com + asset.inter.ikea.com.
+    """
+    import httpx
+    from urllib.parse import urlparse
+
+    url = (u or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing url")
+
+    # Allowlist IKEA hosts (site + asset CDN)
+    if not re.search(r"^https?://([^/]+\.)?ikea\.com/", url, flags=re.IGNORECASE) and not re.search(
+        r"^https?://asset\.inter\.ikea\.com/", url, flags=re.IGNORECASE
+    ):
+        raise HTTPException(status_code=400, detail="Unsupported model host")
+
+    # Only allow model-like extensions
+    p = urlparse(url)
+    ext = os.path.splitext(p.path or "")[-1].lower()
+    if ext not in (".glb", ".gltf"):
+        raise HTTPException(status_code=400, detail="Only .glb/.gltf models are supported")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.ikea.com/",
+    }
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+            r = await client.get(url, headers=headers)
+            if r.status_code != 200 or not r.content:
+                raise HTTPException(status_code=404, detail=f"Model fetch failed: HTTP {r.status_code}")
+            ctype = r.headers.get("content-type") or ("model/gltf-binary" if ext == ".glb" else "model/gltf+json")
+            return StreamingResponse(
+                iter([r.content]),
+                media_type=ctype,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Model proxy error: {str(e)}")
+
 
 @app.get("/catalog")
 async def get_catalog():
     return FURNITURE_CATALOG
 
 
+# ─────────────────────── Phase 5.2: Multi-Retailer Commerce ──────────────────
+
+@app.get("/products/search")
+async def products_search_multi(
+    q: str = Query(default="", description="Search query"),
+    budget: float = Query(default=0, ge=0, description="Max price"),
+    style: str = Query(default="", description="Style hint (optional)"),
+    retailers: str = Query(default="ikea", description="Comma-separated retailers: ikea,wayfair,amazon,west_elm"),
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """
+    Phase 5.2 MVP: Unified search across retailers.
+    Currently returns IKEA results; other retailers are stubs until integrated.
+    """
+    ret_list = [r.strip() for r in (retailers or "").split(",") if r.strip()]
+    products = search_multi_retailer(query=q, style=style, budget=budget, retailers=ret_list, limit=limit)
+    return {"products": products, "count": len(products), "retailers": ret_list}
+
+
+@app.get("/products/availability")
+async def products_availability(
+    ids: str = Query(default="", description="Comma-separated product IDs"),
+    retailer: str = Query(default="ikea", description="Retailer name"),
+):
+    """
+    Phase 5.2 MVP: Availability checker.
+    For IKEA, uses cached in_stock where available; otherwise returns unknown.
+    """
+    retailer = (retailer or "ikea").strip().lower()
+    id_list = [i.strip() for i in (ids or "").split(",") if i.strip()]
+    out = []
+    for pid in id_list[:200]:
+        p = get_product_by_id(pid) if retailer == "ikea" else None
+        out.append({
+            "id": pid,
+            "retailer": retailer,
+            "in_stock": (p.get("in_stock") if isinstance(p, dict) else None),
+        })
+    return {"items": out, "count": len(out)}
+
+
+@app.get("/products/bundle")
+async def products_bundle():
+    """
+    Phase 5.2 MVP: Bundle suggestions for current room.
+    Returns simple category-based recommendations using IKEA catalog.
+    """
+    objects = _room_state.get("objects", []) or []
+    want = []
+    if any(o.get("type") in ("sofa", "armchair", "sectional_sofa") for o in objects):
+        want += ["coffee_table", "rug", "lamp"]
+    if any(o.get("type") in ("bed", "single_bed") for o in objects):
+        want += ["nightstand", "lamp", "wardrobe"]
+    if any(o.get("type") in ("desk",) for o in objects):
+        want += ["office_chair", "bookshelf", "lamp"]
+
+    # De-dupe while preserving order
+    seen = set()
+    want = [w for w in want if not (w in seen or seen.add(w))]
+
+    bundles = []
+    for cat in want[:6]:
+        rows = search_multi_retailer(query=cat.replace("_", " "), budget=0, retailers=["ikea"], limit=6)
+        bundles.append({"category": cat, "products": rows})
+    return {"bundles": bundles, "count": len(bundles)}
+
+
+@app.get("/products/sustainability/{product_id}")
+async def product_sustainability(product_id: str):
+    """
+    Phase 5.2 MVP: Sustainability score for a product (heuristic).
+    """
+    p = get_product_by_id(product_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"product_id": product_id, **sustainability_score(p)}
+
+
 @app.get("/projects")
 async def get_projects():
     return {"projects": list_projects()}
+
+
+# ─────────────────────── Phase 5.5: Share / Comments / Export ────────────────
+
+@app.post("/share")
+async def share_link(req: ShareRequest):
+    payload = create_share(_state_to_dict(_room_state), role=req.role)
+    return payload
+
+
+@app.get("/share/{token}")
+async def share_load(token: str):
+    row = load_share(token)
+    if not row:
+        raise HTTPException(status_code=404, detail="Share token not found")
+    return row
+
+
+@app.post("/comments")
+async def comments_add(req: CommentRequest):
+    if not (req.text or "").strip():
+        raise HTTPException(status_code=400, detail="text cannot be empty")
+    row = add_comment(req.text.strip(), req.x, req.y, req.z, object_id=req.object_id or "")
+    return {"success": True, "comment": row}
+
+
+@app.get("/comments")
+async def comments_list():
+    return {"comments": list_comments(), "count": len(list_comments())}
+
+
+@app.post("/export/pdf")
+async def export_pdf():
+    """
+    MVP: return a payload the frontend can turn into a PDF (client-side jsPDF).
+    """
+    return {
+        "success": True,
+        "format": "pdf",
+        "state": _state_to_dict(_room_state),
+        "note": "MVP: generate the actual PDF client-side from this payload.",
+    }
+
+
+@app.post("/export/dxf")
+async def export_dxf():
+    """
+    Return DXF text for simple CAD import.
+    """
+    dxf = export_room_dxf(_state_to_dict(_room_state))
+    return StreamingResponse(
+        iter([dxf.encode("utf-8")]),
+        media_type="application/dxf",
+        headers={"Content-Disposition": "attachment; filename=room.dxf"},
+    )
+
+
+@app.get("/export/materials")
+async def export_materials():
+    return compute_takeoff(_state_to_dict(_room_state))
+
+
+# ─────────────────────── Phase 5.6: Multi-room (MVP) ─────────────────────────
+
+@app.post("/home/rooms")
+async def home_add_room(req: HomeAddRoomRequest):
+    home = load_home()
+    rid = (req.room_id or "").strip() or f"room_{len(home.get('rooms', {})) + 1}"
+    rooms = home.get("rooms", {}) or {}
+    rooms[rid] = {
+        "id": rid,
+        "name": req.name or rid,
+        "state": _state_to_dict(_room_state),
+    }
+    home["rooms"] = rooms
+    save_home(home)
+    return {"success": True, "home": home}
+
+
+@app.post("/home/connect")
+async def home_connect(req: HomeConnectRequest):
+    home = load_home()
+    rooms = home.get("rooms", {}) or {}
+    if req.a not in rooms or req.b not in rooms:
+        raise HTTPException(status_code=400, detail="Both rooms must exist")
+    conns = home.get("connections", []) or []
+    conns.append({"a": req.a, "b": req.b, "type": req.type})
+    home["connections"] = conns
+    save_home(home)
+    return {"success": True, "home": home}
+
+
+@app.get("/home/budget")
+async def home_budget():
+    home = load_home()
+    total_low = 0.0
+    total_high = 0.0
+    per_room = []
+    for rid, r in (home.get("rooms", {}) or {}).items():
+        state = (r or {}).get("state") or {}
+        # Reuse existing /budget logic quickly by summing catalog ranges
+        low = 0.0
+        high = 0.0
+        for obj in state.get("objects", []) or []:
+            cat = get_furniture(obj.get("type", "")) or {}
+            low += float(cat.get("price_low", 0) or 0)
+            high += float(cat.get("price_high", 0) or 0)
+        total_low += low
+        total_high += high
+        per_room.append({"room_id": rid, "low": low, "high": high})
+    return {"total_low": total_low, "total_high": total_high, "rooms": per_room, "currency": "USD"}
+
+
+@app.get("/home/flow")
+async def home_flow():
+    """
+    MVP traffic flow: return graph stats from connections.
+    """
+    home = load_home()
+    conns = home.get("connections", []) or []
+    rooms = list((home.get("rooms", {}) or {}).keys())
+    degree = {r: 0 for r in rooms}
+    for c in conns:
+        a = c.get("a"); b = c.get("b")
+        if a in degree: degree[a] += 1
+        if b in degree: degree[b] += 1
+    hotspots = sorted(degree.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    return {"rooms": rooms, "connections": conns, "degree": degree, "hotspots": hotspots}
 
 
 @app.post("/command")
@@ -331,6 +652,25 @@ async def post_command(req: CommandRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Command processing failed: {str(e)}")
+
+@app.post("/voice/command")
+async def voice_command(req: VoiceCommandRequest):
+    """
+    Phase 5.3 (v1): Accept already-transcribed text and execute it like /command.
+    (Audio/STT stays planned.)
+    """
+    global _room_state
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text cannot be empty")
+    try:
+        new_state = await asyncio.to_thread(run_command, text, _room_state)
+        _room_state = new_state
+        record_signal(req.session_id, "voice_command", text)
+        await _broadcast(_room_state)
+        return {"success": True, "message": new_state.get("message", ""), "state": _state_to_dict(new_state)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice command failed: {str(e)}")
 
 
 @app.post("/reset")
@@ -384,6 +724,7 @@ async def place_product(req: PlaceProductRequest):
     height_m = _dim_m(product, "height_cm", "height", 0.8)
     object_type = str(product.get("category", "furniture")).lower().replace(" ", "_")
     product_id = str(product.get("id") or product.get("item_no") or req.productId)
+    model_url = product.get("model_url") or ""
     price = product.get("price_usd")
     if price is None:
         price = product.get("price_low")
@@ -402,6 +743,7 @@ async def place_product(req: PlaceProductRequest):
             "product_id": product_id,
             "product_name": product.get("name"),
             "image_url": product.get("image_url"),
+            "model_url": model_url,
             "price": price,
             "brand": product.get("brand", "IKEA"),
             "custom_definition": {
@@ -579,6 +921,17 @@ async def render_room():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Render failed: {str(e)}")
 
+@app.post("/render/video")
+async def render_video():
+    """
+    Phase 5.4 MVP: Video export is implemented client-side (MediaRecorder) for now.
+    This endpoint exists for forward compatibility.
+    """
+    return {
+        "success": False,
+        "note": "Video export is client-side in this MVP. Use the Record button in the UI.",
+    }
+
 
 @app.get("/render/prompt")
 async def get_render_prompt():
@@ -609,6 +962,117 @@ async def import_blueprint(file: UploadFile = File(...)):
         return {"success": True, "parsed": parsed}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Blueprint parsing failed: {str(e)}")
+
+@app.post("/import/photo/preview")
+async def import_photo_preview(file: UploadFile = File(...)):
+    """
+    Phase 5.1: Upload a real room photo and return a preview (no state mutation).
+    Returns scan JSON + ready-to-apply RoomState actions.
+    """
+    allowed = {".png", ".jpg", ".jpeg", ".webp"}
+    ext = os.path.splitext(file.filename or "")[-1].lower()
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}. Use PNG or JPG.")
+
+    image_bytes = await file.read()
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+
+    import base64
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    result = await asyncio.to_thread(scan_frame, b64, None, "", False)
+    actions = result.get("actions") or []
+    return {
+        "success": True,
+        "scan": result,
+        "actions": actions,
+        "summary": _summarize_actions(actions),
+    }
+
+@app.post("/import/photo")
+async def import_photo(file: UploadFile = File(...)):
+    """
+    Phase 5.1: Upload a real room photo and apply extracted actions to RoomState.
+    """
+    preview = await import_photo_preview(file)
+    actions = preview.get("actions") or []
+    applied = await _apply_actions(actions)
+    return {
+        "success": True,
+        "actions_applied": applied,
+        "summary": preview.get("summary"),
+        "state": _state_to_dict(_room_state),
+        "scan": preview.get("scan"),
+    }
+
+@app.post("/style/detect")
+async def style_detect(file: UploadFile | None = File(default=None)):
+    """
+    Phase 5.1: Detect aesthetic style from a photo or (fallback) from current RoomState.
+    """
+    if file is not None:
+        allowed = {".png", ".jpg", ".jpeg", ".webp"}
+        ext = os.path.splitext(file.filename or "")[-1].lower()
+        if ext not in allowed:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}. Use PNG or JPG.")
+        image_bytes = await file.read()
+        if len(image_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File too large (max 10 MB)")
+        import base64
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        result = await asyncio.to_thread(scan_frame, b64, None, "", False)
+        return {
+            "style": result.get("style") or "unknown",
+            "confidence": float(result.get("confidence") or 0.0),
+            "notes": result.get("notes") or "",
+        }
+
+    # Fallback heuristic from current state (best-effort)
+    room = _room_state.get("room", {}) or {}
+    theme = room.get("theme") or ""
+    wall = (room.get("wall_style") or {}).get("material") or ""
+    floor = (room.get("floor_style") or {}).get("material") or ""
+    objs = _room_state.get("objects", []) or []
+    types = {str(o.get("type") or "") for o in objs}
+
+    style = (str(theme).strip() or "modern").lower()
+    notes = []
+    if "wood" in str(floor).lower():
+        notes.append("wood flooring")
+    if "marble" in str(floor).lower() or "stone" in str(floor).lower():
+        notes.append("stone-like flooring")
+    if "brick" in str(wall).lower() or "concrete" in str(wall).lower():
+        style = "industrial"
+        notes.append("industrial wall finish")
+    if {"plant", "rug"} & {t for t in types if t}:
+        notes.append("soft accents present")
+    return {"style": style, "confidence": 0.35, "notes": ", ".join(notes)}
+
+@app.post("/import/sketch")
+async def import_sketch(req: SketchImportRequest, apply: int = Query(default=0, ge=0, le=1)):
+    """
+    Phase 5.3 (v1): Import a hand-drawn sketch (PNG dataURL/base64) using vision scan.
+    - apply=0: preview only
+    - apply=1: apply extracted actions to RoomState
+    """
+    img = (req.image or "").strip()
+    if not img:
+        raise HTTPException(status_code=400, detail="image cannot be empty")
+
+    # scan_frame accepts base64; it also strips 'base64,' prefix if present.
+    result = await asyncio.to_thread(scan_frame, img, None, "", False)
+    actions = result.get("actions") or []
+    applied = 0
+    if apply:
+        applied = await _apply_actions(actions)
+    return {
+        "success": True,
+        "scan": result,
+        "actions": actions,
+        "actions_applied": applied,
+        "summary": _summarize_actions(actions),
+        "state": _state_to_dict(_room_state) if apply else None,
+    }
 
 
 # ─────────────────────── Phase 3: IKEA Product Catalogs ───────────────────

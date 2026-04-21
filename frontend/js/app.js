@@ -7,17 +7,24 @@
 import {
   initScene, buildRoom, syncObjects, highlightObject,
   setTimeOfDay, setMeasureMode, clearMeasurementLines,
-  showClearanceWarnings, clearClearanceWarnings, scene, renderer, SCALE
+  showClearanceWarnings, clearClearanceWarnings, scene, renderer, camera, controls,
+  setWalkthroughEnabled, isWalkthroughEnabled, SCALE
 } from './scene.js';
 import { FURNITURE_EMOJIS } from './furniture.js';
 import {
   sendCommand, resetRoom, getCatalog, getProjects, getState, createWebSocket, checkLLMStatus,
   getMeasurements, getBudget,
   saveVersion, getVersions, getVersionDiff, deleteVersion as apiDeleteVersion,
-  renderRoom, importBlueprint, getProducts, getRoomProducts, placeProduct, selectObject
+  renderRoom, importBlueprint, getProducts, getRoomProducts, placeProduct, selectObject,
+  importPhotoPreview, importPhoto, importSketch,
+  multiRetailerSearch, createShare, listComments, addComment,
+  exportDxf, exportMaterials,
+  homeAddRoom, homeBudget, homeFlow
 } from './api.js';
 import { initVersionsPanel, refreshVersionsList } from './versions.js';
 import { initAR } from './ar.js';
+import { initVoiceInput } from './voice_input.js';
+import { initSketchInput } from './sketch_input.js';
 
 // ─────────────────────── State ───────────────────────────────────────────────
 let currentState = null;
@@ -75,6 +82,55 @@ const projectCeilEl = document.getElementById('project-ceiling');
 const projectListEl = document.getElementById('project-list');
 const btnSaveProject= document.getElementById('btn-save-project');
 const btnLoadProject= document.getElementById('btn-load-project');
+const btnWalkthrough = document.getElementById('btn-walkthrough');
+const btnRecord = document.getElementById('btn-record');
+
+// Phase 5.2 commerce
+const commerceQ = document.getElementById('commerce-q');
+const btnCommerceSearch = document.getElementById('btn-commerce-search');
+const commerceResults = document.getElementById('commerce-results');
+
+// Phase 5.5 collab/export
+const btnShareCreate = document.getElementById('btn-share-create');
+const shareStatus = document.getElementById('share-status');
+const commentText = document.getElementById('comment-text');
+const btnCommentAdd = document.getElementById('btn-comment-add');
+const commentsList = document.getElementById('comments-list');
+const btnExportDxf = document.getElementById('btn-export-dxf');
+const btnExportMaterials = document.getElementById('btn-export-materials');
+const exportStatus = document.getElementById('export-status');
+
+// Phase 5.6 home
+const btnHomeAddRoom = document.getElementById('btn-home-add-room');
+const btnHomeBudget = document.getElementById('btn-home-budget');
+const btnHomeFlow = document.getElementById('btn-home-flow');
+const homeStatus = document.getElementById('home-status');
+
+// Inspector (right panel)
+const inspectorSelected = document.getElementById('inspector-selected');
+const inspectorType     = document.getElementById('inspector-type');
+const inspectorPos      = document.getElementById('inspector-pos');
+const inspectorRot      = document.getElementById('inspector-rot');
+const inspectorSize     = document.getElementById('inspector-size');
+const btnInspectorFocus = document.getElementById('btn-inspector-focus');
+const btnInspectorDelete= document.getElementById('btn-inspector-delete');
+
+// Phase 5.1: Room scan (photo)
+const btnPhotoUpload = document.getElementById('btn-photo-upload');
+const photoFileInput = document.getElementById('photo-file-input');
+const photoPreviewEl = document.getElementById('photo-preview');
+const btnPhotoPreview = document.getElementById('btn-photo-preview');
+const btnPhotoApply = document.getElementById('btn-photo-apply');
+let selectedPhotoFile = null;
+
+// Phase 5.3: Voice
+const btnVoiceToggle = document.getElementById('btn-voice-toggle');
+const voiceStatusEl = document.getElementById('voice-status');
+const voiceTranscriptEl = document.getElementById('voice-transcript');
+
+// Phase 5.3: Sketch
+const btnOpenSketch = document.getElementById('btn-open-sketch');
+const sketchStatusEl = document.getElementById('sketch-status');
 
 // ─────────────────────── Init ────────────────────────────────────────────────
 async function init() {
@@ -95,6 +151,25 @@ async function init() {
   initVersionsPanel(document.getElementById('panel-versions-inner'));
   initAR(scene, renderer);
   listenForVersionCommand();
+
+  initVoiceInput({
+    toggleButton: btnVoiceToggle,
+    statusEl: voiceStatusEl,
+    transcriptEl: voiceTranscriptEl,
+    onText: (t) => {
+      commandInput.value = t;
+      handleSend();
+    },
+  });
+
+  initSketchInput({
+    openButton: btnOpenSketch,
+    statusEl: sketchStatusEl,
+    api: {
+      importSketch: (img, apply) => importSketch(img, apply),
+    },
+    onApplied: (state) => applyState(state),
+  });
 }
 
 function bindEvents() {
@@ -159,10 +234,295 @@ function bindEvents() {
   const btnClearance = document.getElementById('btn-clearance-toggle');
   if (btnClearance) btnClearance.addEventListener('click', refreshClearance);
 
+  // Phase 5.4: Walkthrough toggle
+  if (btnWalkthrough) {
+    btnWalkthrough.addEventListener('click', () => {
+      const enable = !isWalkthroughEnabled();
+      setWalkthroughEnabled(enable, canvas3d);
+      btnWalkthrough.classList.toggle('active', enable);
+      btnWalkthrough.textContent = enable ? '🛑 Exit Walkthrough' : '🚶 Walkthrough';
+    });
+  }
+
+  // Phase 5.4: Video record (client-side MediaRecorder)
+  if (btnRecord) {
+    let recorder = null;
+    let chunks = [];
+    btnRecord.addEventListener('click', async () => {
+      try {
+        if (recorder && recorder.state !== 'inactive') {
+          recorder.stop();
+          return;
+        }
+        const stream = canvas3d.captureStream(30);
+        chunks = [];
+        recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `walkthrough_${Date.now()}.webm`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          btnRecord.textContent = '⏺ Record';
+          btnRecord.classList.remove('active');
+        };
+        recorder.start(500);
+        btnRecord.textContent = '⏹ Stop';
+        btnRecord.classList.add('active');
+      } catch (e) {
+        appendMessage('assistant', `⚠️ Recording failed: ${e.message}`, 'error');
+      }
+    });
+  }
+
   // Panel tabs
   document.querySelectorAll('.side-tab').forEach(tab => {
     tab.addEventListener('click', () => switchPanel(tab.dataset.panel));
   });
+
+  // Phase 5.2: commerce search
+  if (btnCommerceSearch) {
+    btnCommerceSearch.addEventListener('click', async () => {
+      const q = (commerceQ?.value || '').trim();
+      if (!q) return;
+      try {
+        showLoading(true, 'Searching…');
+        const res = await multiRetailerSearch({ q, retailers: 'ikea', limit: 40 });
+        renderCommerceResults(res.products || []);
+      } catch (e) {
+        if (commerceResults) commerceResults.textContent = `Search failed: ${e.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+
+  // Phase 5.5: share link
+  if (btnShareCreate) {
+    btnShareCreate.addEventListener('click', async () => {
+      try {
+        showLoading(true, 'Creating share link…');
+        const res = await createShare('view');
+        const url = `${window.location.origin}/share/${res.token}`;
+        if (shareStatus) shareStatus.innerHTML = `Share token: <span class="mono">${res.token}</span><br/>Link: <a href="${url}" target="_blank" rel="noreferrer">${url}</a>`;
+      } catch (e) {
+        if (shareStatus) shareStatus.textContent = `Share failed: ${e.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+
+  async function refreshComments() {
+    try {
+      const res = await listComments();
+      renderComments(res.comments || []);
+    } catch {}
+  }
+
+  if (btnCommentAdd) {
+    btnCommentAdd.addEventListener('click', async () => {
+      const text = (commentText?.value || '').trim();
+      if (!text) return;
+      try {
+        const sel = currentState?.selected_object_id || '';
+        await addComment({ text, x: 0, y: 0, z: 0, object_id: sel });
+        if (commentText) commentText.value = '';
+        await refreshComments();
+      } catch (e) {
+        appendMessage('assistant', `⚠️ Comment failed: ${e.message}`, 'error');
+      }
+    });
+  }
+  refreshComments();
+
+  // Phase 5.5: exports
+  if (btnExportDxf) {
+    btnExportDxf.addEventListener('click', async () => {
+      try {
+        showLoading(true, 'Exporting DXF…');
+        const blob = await exportDxf();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'room.dxf';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        if (exportStatus) exportStatus.textContent = 'DXF downloaded.';
+      } catch (e) {
+        if (exportStatus) exportStatus.textContent = `DXF export failed: ${e.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+  if (btnExportMaterials) {
+    btnExportMaterials.addEventListener('click', async () => {
+      try {
+        showLoading(true, 'Computing takeoff…');
+        const res = await exportMaterials();
+        if (exportStatus) exportStatus.textContent = `Floor: ${res.floor_area_m2}m² · Walls: ${res.wall_area_m2}m²`;
+      } catch (e) {
+        if (exportStatus) exportStatus.textContent = `Takeoff failed: ${e.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+
+  // Phase 5.6: home
+  if (btnHomeAddRoom) {
+    btnHomeAddRoom.addEventListener('click', async () => {
+      try {
+        showLoading(true, 'Adding room…');
+        const res = await homeAddRoom({ name: currentState?.project?.name || 'Room' });
+        const n = Object.keys(res.home?.rooms || {}).length;
+        if (homeStatus) homeStatus.textContent = `Home rooms: ${n}`;
+      } catch (e) {
+        if (homeStatus) homeStatus.textContent = `Add room failed: ${e.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+  if (btnHomeBudget) {
+    btnHomeBudget.addEventListener('click', async () => {
+      try {
+        showLoading(true, 'Computing home budget…');
+        const res = await homeBudget();
+        if (homeStatus) homeStatus.textContent = `Home budget: $${Math.round(res.total_low)}–$${Math.round(res.total_high)}`;
+      } catch (e) {
+        if (homeStatus) homeStatus.textContent = `Home budget failed: ${e.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+  if (btnHomeFlow) {
+    btnHomeFlow.addEventListener('click', async () => {
+      try {
+        showLoading(true, 'Computing flow…');
+        const res = await homeFlow();
+        const top = (res.hotspots?.[0] && `${res.hotspots[0][0]} (${res.hotspots[0][1]})`) || '—';
+        if (homeStatus) homeStatus.textContent = `Connections: ${(res.connections || []).length} · Top: ${top}`;
+      } catch (e) {
+        if (homeStatus) homeStatus.textContent = `Flow failed: ${e.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+
+  // Phase 5.1: photo upload/preview/apply
+  if (btnPhotoUpload && photoFileInput) {
+    btnPhotoUpload.addEventListener('click', () => photoFileInput.click());
+    photoFileInput.addEventListener('change', (e) => {
+      selectedPhotoFile = e.target.files?.[0] || null;
+      if (photoPreviewEl) photoPreviewEl.textContent = selectedPhotoFile ? `Selected: ${selectedPhotoFile.name}` : '';
+      if (btnPhotoPreview) btnPhotoPreview.disabled = !selectedPhotoFile;
+      if (btnPhotoApply) btnPhotoApply.disabled = true;
+    });
+  }
+  if (btnPhotoPreview) {
+    btnPhotoPreview.addEventListener('click', async () => {
+      if (!selectedPhotoFile) return;
+      try {
+        showLoading(true, 'Scanning photo…');
+        const res = await importPhotoPreview(selectedPhotoFile);
+        const summary = res.summary?.by_type ? JSON.stringify(res.summary.by_type) : '';
+        const style = res.scan?.style ? `Style: ${res.scan.style}` : '';
+        const conf = (res.scan?.confidence != null) ? `Confidence: ${Math.round(res.scan.confidence * 100)}%` : '';
+        if (photoPreviewEl) photoPreviewEl.textContent = [style, conf, summary].filter(Boolean).join(' · ') || 'Preview ready.';
+        if (btnPhotoApply) btnPhotoApply.disabled = false;
+      } catch (err) {
+        if (photoPreviewEl) photoPreviewEl.textContent = `Preview failed: ${err.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+  if (btnPhotoApply) {
+    btnPhotoApply.addEventListener('click', async () => {
+      if (!selectedPhotoFile) return;
+      try {
+        showLoading(true, 'Applying scan…');
+        const res = await importPhoto(selectedPhotoFile);
+        if (res?.state) applyState(res.state);
+        if (photoPreviewEl) photoPreviewEl.textContent = `Applied ${res.actions_applied || 0} action(s).`;
+      } catch (err) {
+        if (photoPreviewEl) photoPreviewEl.textContent = `Apply failed: ${err.message}`;
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
+
+  if (btnInspectorFocus) {
+    btnInspectorFocus.addEventListener('click', () => {
+      const id = currentState?.selected_object_id;
+      if (!id || !currentState?.objects?.length) return;
+      const obj = currentState.objects.find(o => o.id === id);
+      if (!obj || !camera || !controls) return;
+      const x = (obj.x ?? 0) + (obj.w ?? (obj.size?.[0] ?? 1)) / 2;
+      const z = (obj.z ?? 0) + (obj.d ?? (obj.size?.[1] ?? 1)) / 2;
+      controls.target.set(x, 0, z);
+      camera.position.set(x + 4.2, Math.max(4.8, (currentState?.room?.width || 10) * 0.5), z + 6.2);
+      controls.update();
+    });
+  }
+}
+
+function showLoading(show, text = 'Processing…') {
+  if (!loadingOverlay) return;
+  loadingOverlay.style.display = show ? 'flex' : 'none';
+  const t = loadingOverlay.querySelector('.loading-text');
+  if (t) t.textContent = text;
+}
+
+function renderCommerceResults(products) {
+  if (!commerceResults) return;
+  if (!products || !products.length) {
+    commerceResults.innerHTML = '<p class="empty-inventory">No results.</p>';
+    return;
+  }
+  commerceResults.innerHTML = '';
+  for (const p of products.slice(0, 40)) {
+    const row = document.createElement('div');
+    row.className = 'inv-item';
+    row.innerHTML = `
+      <div class="inv-info">
+        <div><strong>${p.name || p.id}</strong> <span class="text-muted">(${p.retailer || ''})</span></div>
+        <div class="text-muted mono">${p.price != null ? p.price : '—'} ${p.currency || ''}</div>
+      </div>
+      <button class="btn btn-outline btn-tiny" title="Open product" ${p.buy_url ? '' : 'disabled'}>View</button>
+    `;
+    const btn = row.querySelector('button');
+    if (btn && p.buy_url) btn.addEventListener('click', () => window.open(p.buy_url, '_blank', 'noreferrer'));
+    commerceResults.appendChild(row);
+  }
+}
+
+function renderComments(items) {
+  if (!commentsList) return;
+  if (!items || !items.length) {
+    commentsList.innerHTML = '<p class="empty-inventory">No comments yet.</p>';
+    return;
+  }
+  commentsList.innerHTML = '';
+  for (const c of items.slice().reverse().slice(0, 50)) {
+    const row = document.createElement('div');
+    row.className = 'inv-item';
+    row.innerHTML = `
+      <div class="inv-info">
+        <div><strong>${c.text}</strong></div>
+        <div class="text-muted mono">${c.object_id || ''}</div>
+      </div>
+    `;
+    commentsList.appendChild(row);
+  }
 }
 
 function initProductsPanel() {
@@ -270,6 +630,7 @@ function applyState(state) {
   renderInventory(state.objects || []);
   objectCount.textContent = `${(state.objects || []).length} items`;
   if (state.selected_object_id) highlightObject(state.selected_object_id);
+  updateInspector(state);
   if (!is3D) render2D(state);
 
   // Show clearance warnings if active
@@ -280,6 +641,25 @@ function applyState(state) {
     clearClearanceWarnings();
     updateClearanceBadge([], 100);
   }
+}
+
+function updateInspector(state) {
+  if (!inspectorSelected) return;
+  const id = state?.selected_object_id || '';
+  const obj = id ? (state.objects || []).find(o => o.id === id) : null;
+
+  inspectorSelected.textContent = id || '—';
+  inspectorType.textContent = obj?.type ? String(obj.type).replace(/_/g, ' ') : '—';
+  const x = (obj?.x ?? null);
+  const z = (obj?.z ?? null);
+  inspectorPos.textContent = (x != null && z != null) ? `${x.toFixed?.(2) ?? x}, ${z.toFixed?.(2) ?? z} m` : '—';
+  inspectorRot.textContent = (obj?.rotation != null) ? `${Number(obj.rotation).toFixed(0)}°` : '—';
+  const w = (obj?.w ?? obj?.size?.[0] ?? null);
+  const d = (obj?.d ?? obj?.size?.[1] ?? null);
+  inspectorSize.textContent = (w != null && d != null) ? `${Number(w).toFixed(2)} × ${Number(d).toFixed(2)} m` : '—';
+
+  if (btnInspectorFocus) btnInspectorFocus.disabled = !obj;
+  if (btnInspectorDelete) btnInspectorDelete.disabled = !obj;
 }
 
 function initProductDragDrop() {
@@ -854,7 +1234,7 @@ function showTyping() {
 }
 
 function removeTyping(id) { const el = document.getElementById(id); if (el) el.remove(); }
-function showLoading(show) { loadingOverlay.style.display = show ? 'flex' : 'none'; }
+// (legacy helper removed — use showLoading(show, text) above)
 function _formatText(text) {
   return text
     .replace(/\n/g, '<br/>')

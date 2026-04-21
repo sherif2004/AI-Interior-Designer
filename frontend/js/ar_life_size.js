@@ -186,7 +186,9 @@ class ARLifeSize {
         return new Promise((resolve, reject) => {
             const loader = new THREE.GLTFLoader();
             loader.load(
-                url,
+                (String(url || '').startsWith('http://') || String(url || '').startsWith('https://'))
+                  ? `/model?u=${encodeURIComponent(url)}`
+                  : url,
                 (gltf) => {
                     const model = gltf.scene;
                     model.traverse(child => {

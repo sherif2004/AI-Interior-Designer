@@ -10,11 +10,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createFurnitureMesh } from './furniture.js';
+import { WalkthroughController } from './walkthrough.js';
 
 export let renderer, scene, camera, controls;
 let floorMesh, wallMeshes = [], gridHelper;
 let openingMeshes = [];
 let furnitureMeshMap = {}; // id → THREE.Group
+let walkthrough = null;
 
 // Lighting refs for day/night control
 let sunLight, ambientLight, hemiLight, fillLight;
@@ -156,8 +158,27 @@ export function setTimeOfDay(hour) {
 
 function _animate() {
   requestAnimationFrame(_animate);
+  if (walkthrough?.enabled) {
+    walkthrough.update(1 / 60);
+  }
   controls.update();
   renderer.render(scene, camera);
+}
+
+export function setWalkthroughEnabled(enabled, canvasEl = null) {
+  const want = Boolean(enabled);
+  if (want) {
+    if (!walkthrough) walkthrough = new WalkthroughController({ camera, domElement: canvasEl || renderer.domElement, scene });
+    controls.enabled = false;
+    walkthrough.start();
+  } else {
+    if (walkthrough) walkthrough.stop();
+    controls.enabled = true;
+  }
+}
+
+export function isWalkthroughEnabled() {
+  return Boolean(walkthrough?.enabled);
 }
 
 function _handleResize(canvas) {

@@ -11,252 +11,259 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="saas-theme">
+<body class="planner5d-theme">
 
-  <!-- ═══════════════ SIDEBAR NAVIGATION ═══════════════ -->
-  <nav class="saas-sidebar" id="sidebar">
-    <div class="sidebar-brand">
-      <div class="brand-icon">🏠</div>
-      <div class="brand-text">Designer AI</div>
+  <!-- TOP TOOLBAR -->
+  <header class="p5d-topbar">
+    <div class="p5d-brand">
+      <span class="icon">🏠</span> Planner 5D AI
     </div>
     
-    <!-- We use the existing side-tab class so JS tab switching works -->
-    <div class="sidebar-nav">
-      <button class="side-tab active" data-panel="panel-chat" title="Workspace (3D/2D)">
-        <span class="nav-icon">👁️</span> <span class="nav-label">Workspace</span>
+    <div class="p5d-center-tools">
+      <button id="btn-toggle-view" class="btn btn-outline" title="Toggle 2D/3D view">
+        <span id="view-label">Toggle 2D</span>
       </button>
-      <button class="side-tab" data-panel="panel-products" title="IKEA Catalog (EGP)">
-        <span class="nav-icon">🛍️</span> <span class="nav-label">Catalog</span>
-      </button>
-      <button class="side-tab" data-panel="panel-versions" title="Version Control">
-        <span class="nav-icon">🔀</span> <span class="nav-label">Versions</span>
-      </button>
-      <button class="side-tab" data-panel="panel-blueprint" title="Import Floor Plan">
-        <span class="nav-icon">📐</span> <span class="nav-label">Import Plan</span>
-      </button>
-      <button class="side-tab" data-panel="panel-project" title="Project Settings">
-        <span class="nav-icon">⚙️</span> <span class="nav-label">Settings</span>
-      </button>
+      <button id="btn-measure" class="btn btn-outline" title="Measure Distance">📏 Measure</button>
+      <button id="btn-clearance-toggle" class="btn btn-outline" title="Check Clearances">↻ Analyize Clearance</button>
+      <button id="btn-walkthrough" class="btn btn-outline" title="First-person walkthrough">🚶 Walkthrough</button>
+      <button id="btn-record" class="btn btn-outline" title="Record viewer video">⏺ Record</button>
     </div>
 
-    <div class="sidebar-footer">
-      <div class="connection-badge" id="llm-status" title="LLM Status">
-        <span class="dot dot-connecting" id="llm-dot"></span>
-        <span id="llm-label" class="nav-label">LLM...</span>
-      </div>
-      <div class="connection-badge" id="ws-status">
-        <span class="dot dot-connecting"></span>
-        <span id="ws-label" class="nav-label">Connecting…</span>
-      </div>
+    <div class="p5d-right-tools">
+      <span id="llm-status" class="tool-badge"><span id="llm-dot" class="dot"></span> <span id="llm-label">LLM...</span></span>
+      <span id="ws-status" class="tool-badge"><span class="dot"></span> <span id="ws-label">WS...</span></span>
+      <button id="btn-ar" class="btn btn-accent ar-btn" style="display:none;" title="View in AR">📱 AR</button>
+      <span id="ar-hint" class="ar-hint" style="display:none">📱 AR Ready</span>
+      <button id="btn-render" class="btn btn-primary">✨ AI Render</button>
+      <button id="btn-reset" class="btn btn-danger">🔄 Reset</button>
     </div>
-  </nav>
+  </header>
 
-  <!-- ═══════════════ MAIN CONTENT ═══════════════ -->
-  <div class="saas-main">
-    
-    <!-- TOPBAR -->
-    <header class="saas-topbar">
-      <div class="topbar-breadcrumbs">
-        <span class="crumb">Project / </span><span id="project-name" class="crumb-active">My Home Project</span>
-      </div>
+  <!-- MAIN WORKSPACE -->
+  <div class="p5d-workspace">
+
+    <!-- LEFT TOOLBAR (Icons) -->
+    <nav class="p5d-sidebar-nav">
+      <button class="side-tab active" data-panel="panel-chat" title="Properties & Objects">✏️</button>
+      <button class="side-tab" data-panel="panel-products" title="IKEA Catalog">🛍️</button>
+      <button class="side-tab" data-panel="panel-commerce" title="Multi-Retailer Search">💳</button>
+      <button class="side-tab" data-panel="panel-versions" title="Version Control">🔀</button>
+      <button class="side-tab" data-panel="panel-blueprint" title="Import Floor Plan">📐</button>
+      <button class="side-tab" data-panel="panel-scan" title="Room Scan (Photo)">📷</button>
+      <button class="side-tab" data-panel="panel-voice" title="Voice Commands">🎙️</button>
+      <button class="side-tab" data-panel="panel-sketch" title="Sketch Import">✏️</button>
+      <button class="side-tab" data-panel="panel-collab" title="Share & Comments">🤝</button>
+      <button class="side-tab" data-panel="panel-home" title="Multi-room Home">🏠</button>
+      <button class="side-tab" data-panel="panel-project" title="Settings">⚙️</button>
+    </nav>
+
+    <!-- EXPANDED LEFT PANEL (Context menus) -->
+    <aside class="p5d-left-panel">
       
-      <div class="topbar-actions">
-        <!-- Render button -->
-        <button id="btn-render" class="btn btn-accent">✨ AI Render</button>
-
-        <!-- View Mode -->
-        <button id="btn-toggle-view" class="btn btn-ghost" title="Toggle 2D/3D view">
-          <span id="view-label">3D View</span>
-        </button>
-
-        <button id="btn-ar" class="btn btn-ghost ar-btn" style="display:none;" title="View in Augmented Reality">
-          📱 AR
-        </button>
-        <span id="ar-hint" class="ar-hint" style="display:none">📱 AR</span>
-
-        <!-- Reset -->
-        <button id="btn-reset" class="btn btn-danger" title="Clear room">🔄 Reset</button>
-      </div>
-    </header>
-
-    <!-- KPI CARDS ROW -->
-    <div class="saas-kpi-row">
-      <div class="kpi-card">
-        <div class="kpi-label">Dimensions</div>
-        <div class="kpi-value" id="stat-room">10 × 8 m</div>
-        <div class="kpi-sub">Ceiling: <span id="project-ceiling">3.0m</span></div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Furniture Count</div>
-        <div class="kpi-value" id="stat-objects">0</div>
-        <div class="kpi-sub"><span id="object-count">0 items</span></div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Layout Score</div>
-        <div class="kpi-value score-good" id="accessibility-score">100%</div>
-        <div class="kpi-sub" id="clearance-badge" style="display:none; color:var(--accent-red)">⚠️ Issues found</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Last Action</div>
-        <div class="kpi-value" id="stat-last">—</div>
-        <div class="kpi-sub">via AI Designer</div>
-      </div>
-    </div>
-
-    <!-- WORKSPACE AREA -->
-    <div class="saas-workspace">
-      
-      <!-- CENTER: Tabbed content -->
-      <div class="saas-center">
+      <div id="panel-chat" class="side-panel-content active-panel">
+        <div class="panel-header"><h3>Room Objects</h3></div>
+        <div class="inventory-list" id="inventory-list">
+          <p class="empty-inventory">No furniture placed yet.</p>
+        </div>
         
-        <!-- Tab 1: 3D/2D Viewer (panel-chat so it's active by default per app.js) -->
-        <div id="panel-chat" class="side-panel-content active-panel saas-viewer-panel">
-          <main class="viewer-container" id="viewer-container">
-            <canvas id="three-canvas"></canvas>
-            <canvas id="canvas-2d" style="display:none;"></canvas>
-            
-            <div class="controls-hint" id="controls-hint">
-              <span>🖱️ Orbit</span>
-              <span>⚙️ Scroll zoom</span>
-              <span>🤚 Right-drag pan</span>
-            </div>
+        <div class="panel-header mt-4"><h3>Statistics</h3></div>
+        <div class="detail-row"><span>Dimensions</span> <span id="stat-room">10 × 8 m</span></div>
+        <div class="detail-row"><span>Items</span> <span id="stat-objects">0</span> (<span id="object-count">0</span>)</div>
+        <div class="detail-row"><span>Ceiling</span> <span id="project-ceiling">3.0m</span></div>
+        <div class="detail-row"><span>Last Action</span> <span id="stat-last" class="text-truncate">—</span></div>
+      </div>
 
-            <div class="room-style-panel" id="room-style-panel">
-              <div class="style-chip"><span class="style-chip-label">Theme</span><span class="style-chip-value" id="style-theme">Modern</span></div>
-              <div class="style-chip"><span class="style-chip-label">Walls</span><span class="style-chip-value" id="style-walls">Warm white paint</span></div>
-              <div class="style-chip"><span class="style-chip-label">Floor</span><span class="style-chip-value" id="style-floor">Oak wood</span></div>
-            </div>
-
-            <!-- AR Overlay -->
-            <div id="ar-overlay" class="ar-overlay" style="display:none;">
-              <button class="btn btn-danger ar-exit-btn" onclick="window._exitAR && window._exitAR()">Exit AR</button>
-            </div>
-            
-            <!-- Quick command chips overlaid on viewer -->
-            <div class="quick-commands floating-chips" id="quick-commands">
-              <span class="chip-label">Try:</span>
-              <button class="chip" data-cmd="Create a cozy bedroom">Cozy bedroom</button>
-              <button class="chip" data-cmd="Create a modern living room">Modern living room</button>
-              <button class="chip" data-cmd="Make the room 6 by 5 meters">Resize room</button>
-            </div>
-          </main>
+      <div id="panel-products" class="side-panel-content">
+        <div class="panel-header">
+          <h3>IKEA Catalog</h3>
+          <button class="btn btn-outline btn-tiny" id="btn-live-scrape">Live Scrape</button>
         </div>
-
-        <!-- Tab 2: Catalog -->
-        <div id="panel-products" class="side-panel-content saas-content-panel">
-          <div class="saas-panel-header">
-            <h2>🛍️ IKEA Egypt Catalog</h2>
-            <button class="btn btn-ghost btn-small" id="btn-live-scrape">⚡ Live Scrape</button>
-          </div>
-          <div class="saas-search-bar">
-            <input id="products-search" placeholder="Search furniture (e.g. bed, desk)..." />
-            <button class="btn btn-primary" id="btn-products-search">Search</button>
-          </div>
-          <div id="scrape-status" class="saas-status-text"></div>
-          <div id="products-panel-inner" class="products-panel-inner">
-            <p class="empty-inventory">Search or browse products.</p>
-          </div>
+        <div class="p5d-search">
+          <input id="products-search" placeholder="Search..." />
+          <button id="btn-products-search">🔍</button>
         </div>
+        <div id="scrape-status" class="status-msg"></div>
+        <div id="products-panel-inner" class="products-container"></div>
+      </div>
 
-        <!-- Tab 3: Versions -->
-        <div id="panel-versions" class="side-panel-content saas-content-panel">
-          <div class="saas-panel-header"><h2>🔀 Version Control</h2></div>
-          <div id="panel-versions-inner"></div>
+      <div id="panel-commerce" class="side-panel-content">
+        <div class="panel-header"><h3>Multi-Retailer Search</h3></div>
+        <div class="p5d-search">
+          <input id="commerce-q" placeholder="Search products (e.g. sofa under 300)..." />
+          <button id="btn-commerce-search">🔍</button>
         </div>
+        <div class="detail-row"><span>Retailers</span> <span class="mono" id="commerce-retailers">ikea</span></div>
+        <div class="detail-row"><span>Budget</span> <span class="mono" id="commerce-budget">$0</span></div>
+        <div id="commerce-results" class="products-container"></div>
+      </div>
 
-        <!-- Tab 4: Blueprint -->
-        <div id="panel-blueprint" class="side-panel-content saas-content-panel">
-          <div class="saas-panel-header"><h2>📐 Import Floor Plan</h2></div>
-          <div class="blueprint-upload-zone" id="blueprint-drop-zone">
-            <div class="blueprint-upload-icon">📐</div>
-            <p>Drag & drop or</p>
-            <button class="btn btn-accent" id="btn-blueprint-upload">Choose File (PNG/JPG)</button>
-            <input type="file" id="blueprint-file-input" accept=".png,.jpg,.jpeg,.webp" style="display:none;" />
-          </div>
-          <div id="blueprint-status" class="blueprint-status mt-4"></div>
+      <div id="panel-versions" class="side-panel-content">
+        <div class="panel-header"><h3>Versions</h3></div>
+        <div id="panel-versions-inner"></div>
+      </div>
+
+      <div id="panel-blueprint" class="side-panel-content">
+        <div class="panel-header"><h3>Import Plan</h3></div>
+        <div class="upload-zone" id="blueprint-drop-zone">
+          <button class="btn btn-primary" id="btn-blueprint-upload">Upload File</button>
+          <input type="file" id="blueprint-file-input" accept=".png,.jpg,.jpeg,.webp" style="display:none;" />
         </div>
+        <div id="blueprint-status" class="status-msg mt-4"></div>
+      </div>
 
-        <!-- Tab 5: Settings -->
-        <div id="panel-project" class="side-panel-content saas-content-panel">
-          <div class="saas-panel-header"><h2>⚙️ Project Settings</h2></div>
-          <div class="project-details">
-            <div class="detail-row"><span>Project ID</span> <span id="project-id" class="mono">default_project</span></div>
-            <div class="saas-panel-actions">
-              <button class="btn btn-ghost" id="btn-save-project">💾 Save</button>
-              <button class="btn btn-ghost" id="btn-load-project">📂 Load</button>
-            </div>
-          </div>
-          <div id="project-list" class="saas-list mt-4"></div>
+      <div id="panel-scan" class="side-panel-content">
+        <div class="panel-header"><h3>Room Scan</h3></div>
+        <div class="upload-zone">
+          <button class="btn btn-primary" id="btn-photo-upload">Upload Room Photo</button>
+          <input type="file" id="photo-file-input" accept=".png,.jpg,.jpeg,.webp" style="display:none;" />
         </div>
+        <div id="photo-preview" class="status-msg mt-4"></div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-outline w-full" id="btn-photo-preview" disabled>Preview</button>
+          <button class="btn btn-primary w-full" id="btn-photo-apply" disabled>Apply to Project</button>
+        </div>
+      </div>
 
-        <!-- Hidden tabs needed by JS logic but integrated into right sidebar -->
-        <div id="panel-budget" class="side-panel-content" style="display:none"></div>
-        <div id="panel-clearance" class="side-panel-content" style="display:none"></div>
+      <div id="panel-voice" class="side-panel-content">
+        <div class="panel-header"><h3>Voice</h3></div>
+        <div class="detail-row"><span>Status</span> <span id="voice-status">Idle</span></div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-primary w-full" id="btn-voice-toggle">Start Listening</button>
+        </div>
+        <div id="voice-transcript" class="status-msg mt-4"></div>
+      </div>
 
+      <div id="panel-sketch" class="side-panel-content">
+        <div class="panel-header"><h3>Sketch</h3></div>
+        <div class="status-msg">Draw a quick floor plan sketch and convert it into actions.</div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-primary w-full" id="btn-open-sketch">Open Sketch Canvas</button>
+        </div>
+        <div id="sketch-status" class="status-msg mt-4"></div>
+      </div>
+
+      <div id="panel-collab" class="side-panel-content">
+        <div class="panel-header"><h3>Share & Comments</h3></div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-primary w-full" id="btn-share-create">Create Share Link</button>
+        </div>
+        <div id="share-status" class="status-msg mt-4"></div>
+        <div class="panel-header mt-4"><h3>Comments</h3></div>
+        <div class="p5d-search">
+          <input id="comment-text" placeholder="Add a comment..." />
+          <button id="btn-comment-add">➕</button>
+        </div>
+        <div id="comments-list" class="products-container"></div>
+      </div>
+
+      <div id="panel-home" class="side-panel-content">
+        <div class="panel-header"><h3>Home (Multi-room)</h3></div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-primary w-full" id="btn-home-add-room">Add Current Room to Home</button>
+          <button class="btn btn-outline w-full mt-2" id="btn-home-budget">Get Home Budget</button>
+          <button class="btn btn-outline w-full mt-2" id="btn-home-flow">Get Flow Stats</button>
+        </div>
+        <div id="home-status" class="status-msg mt-4"></div>
+      </div>
+
+      <div id="panel-project" class="side-panel-content">
+        <div class="panel-header"><h3>Project</h3></div>
+        <div class="detail-row"><span>ID</span> <span id="project-id" class="mono">default_project</span></div>
+        <div class="detail-row"><span>Name</span> <span id="project-name">My Home</span></div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-primary w-full" id="btn-save-project">Save</button>
+          <button class="btn btn-outline w-full" id="btn-load-project">Load</button>
+        </div>
+        <div id="project-list" class="item-list mt-4"></div>
+        <div class="panel-header mt-4"><h3>Exports</h3></div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-outline w-full" id="btn-export-dxf">Download DXF</button>
+          <button class="btn btn-outline w-full mt-2" id="btn-export-materials">Materials Takeoff</button>
+        </div>
+        <div id="export-status" class="status-msg mt-4"></div>
+      </div>
+
+    </aside>
+
+    <!-- CENTER CANVAS AREA -->
+    <main class="p5d-canvas-area" id="viewer-container">
+      <canvas id="three-canvas"></canvas>
+      <canvas id="canvas-2d" style="display:none;"></canvas>
+      
+      <div class="controls-hint" id="controls-hint">
+        🖱️ Orbit &nbsp;|&nbsp; ⚙️ Scroll zoom &nbsp;|&nbsp; 🤚 Right-drag pan
+      </div>
+
+      <!-- AutoCAD-style Floating AI Command Line -->
+      <div class="p5d-command-prompt">
+        <div class="chat-history" id="chat-history" style="display:none;"></div>
+        <div class="cmd-wrapper">
+          <span class="cmd-prefix">AI></span>
+          <input type="text" id="command-input" placeholder="Enter natural language command..." autocomplete="off" autofocus />
+          <button id="send-btn" title="Execute">↳</button>
+        </div>
+      </div>
+
+      <!-- AR Overlay / Modal support -->
+      <div id="ar-overlay" class="ar-overlay" style="display:none;">
+        <button class="btn btn-danger ar-exit-btn" onclick="window._exitAR && window._exitAR()">Exit AR</button>
       </div>
       
-      <!-- RIGHT PANEL: Contextual info -->
-      <aside class="saas-right-panel">
-        
-        <!-- Inventory -->
-        <div class="saas-widget">
-          <div class="widget-header">
-            <h3>Room Objects</h3>
-          </div>
-          <div class="inventory-list" id="inventory-list">
-            <p class="empty-inventory">No furniture placed yet.</p>
-          </div>
+      <!-- Hidden UI tabs required by code -->
+      <div id="panel-budget" style="display:none"></div>
+      <div id="panel-clearance" style="display:none"></div>
+    </main>
+
+    <!-- RIGHT PANEL (Contextual Tools / Analytics) -->
+    <aside class="p5d-right-panel">
+      <!-- Inspector -->
+      <div class="widget-box">
+        <h4>Inspector</h4>
+        <div class="finish-row"><span>Selected</span> <span id="inspector-selected">—</span></div>
+        <div class="finish-row"><span>Type</span> <span id="inspector-type">—</span></div>
+        <div class="finish-row"><span>Position</span> <span id="inspector-pos">—</span></div>
+        <div class="finish-row"><span>Rotation</span> <span id="inspector-rot">—</span></div>
+        <div class="finish-row"><span>Size</span> <span id="inspector-size">—</span></div>
+        <div class="panel-actions mt-4">
+          <button class="btn btn-outline w-full" id="btn-inspector-focus" disabled>Focus</button>
+          <button class="btn btn-danger w-full" id="btn-inspector-delete" disabled>Delete</button>
         </div>
-
-        <!-- Budget -->
-        <div class="saas-widget">
-          <div class="widget-header">
-            <h3>Budget Est.</h3>
-            <button class="btn btn-ghost btn-tiny" id="btn-refresh-budget">↻</button>
-          </div>
-          <div id="budget-panel-inner" class="budget-panel-inner">
-            <p class="empty-text">Add furniture to estimate.</p>
-          </div>
-        </div>
-
-        <!-- Clearances -->
-        <div class="saas-widget">
-          <div class="widget-header">
-            <h3>Clearances</h3>
-            <div>
-              <button class="btn btn-ghost btn-tiny" id="btn-measure">📏</button>
-              <button class="btn btn-ghost btn-tiny" id="btn-clearance-toggle">↻ Check</button>
-            </div>
-          </div>
-          <div id="clearance-panel-inner" class="clearance-panel-inner">
-            <p class="empty-text">Click Check to analyze.</p>
-          </div>
-        </div>
-
-      </aside>
-
-    </div>
-
-    <!-- AI COMMAND BAR (Floating Bottom) -->
-    <div class="saas-command-bar">
-      <!-- Hidden history but accessible if needed -->
-      <div class="chat-history" id="chat-history" style="display: none;"></div>
-      
-      <div class="command-input-wrapper">
-        <div class="ai-sparkle">✨</div>
-        <input type="text" id="command-input" class="command-input" placeholder="Ask AI to design, add furniture, or modify the layout..." autocomplete="off" autofocus />
-        <button id="send-btn" class="send-btn" title="Send to AI">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-        </button>
       </div>
-    </div>
-    
+
+      <!-- Theme & Materials -->
+      <div class="widget-box">
+        <h4>Room Finishes</h4>
+        <div class="finish-row"><span>Theme</span> <span id="style-theme">Modern</span></div>
+        <div class="finish-row"><span>Walls</span> <span id="style-walls">Paint</span></div>
+        <div class="finish-row"><span>Floor</span> <span id="style-floor">Wood</span></div>
+      </div>
+
+      <!-- Clearance / Score -->
+      <div class="widget-box">
+        <h4>Accessibility Score</h4>
+        <div class="score-display score-good" id="accessibility-score">100%</div>
+        <div id="clearance-badge" style="display:none; color:#fb7185">⚠️ Walkway blocked</div>
+        <div id="clearance-panel-inner" class="mt-4 pt-2 border-top">
+          <p class="text-muted">Click Analyize Clearance in Topbar.</p>
+        </div>
+      </div>
+
+      <!-- Budget -->
+      <div class="widget-box">
+        <div class="widget-flex">
+          <h4>Budget Est.</h4>
+          <button class="btn-icon" id="btn-refresh-budget">↻</button>
+        </div>
+        <div id="budget-panel-inner" class="mt-2"></div>
+      </div>
+    </aside>
+
   </div>
 
   <!-- Loading Overlay -->
   <div class="loading-overlay" id="loading-overlay" style="display:none;">
     <div class="spinner"></div>
-    <p class="loading-text">AI is planning...</p>
+    <span class="loading-text">Processing...</span>
   </div>
 
   <!-- Scripts -->
