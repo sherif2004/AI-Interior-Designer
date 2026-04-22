@@ -1,0 +1,55 @@
+{
+  "tenants": [
+    {
+      "id": "default",
+      "name": "Planner 5D AI",
+      "domains": [
+        "localhost",
+        "127.0.0.1"
+      ],
+      "branding": {
+        "app_title": "Planner 5D AI",
+        "meta_description": "Professional SaaS AI Home Planner"
+      },
+      "feature_flags": {
+        "catalog": true,
+        "commerce": true,
+        "versions": true,
+        "blueprint": true,
+        "scan": true,
+        "voice": true,
+        "sketch": true,
+        "collab": true,
+        "home": true,
+        "ar": true
+      },
+      "services": [
+        {
+          "id": "floorplan",
+          "label": "2D/3D Floor Planning",
+          "enabled": true
+        },
+        {
+          "id": "ai_render",
+          "label": "AI 4K Rendering",
+          "enabled": true
+        },
+        {
+          "id": "ar_preview",
+          "label": "AR Product Preview",
+          "enabled": true
+        },
+        {
+          "id": "commerce",
+          "label": "Shopping & Budget",
+          "enabled": true
+        },
+        {
+          "id": "collab",
+          "label": "Share & Comments",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

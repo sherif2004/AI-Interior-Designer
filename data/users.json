@@ -1,0 +1,12 @@
+[
+  {
+    "id": "3a270eaf0e2548b5bbfb4540a8764f5c",
+    "email": "scherifaschraf@gmail.com",
+    "name": "shefo",
+    "tenant_id": "default",
+    "role": "owner",
+    "salt": "acbb8c8c7f274cd882b45da9a7853927",
+    "password_hash": "ccab5e14876afe6f6794f885e03686b4dc2d36d2be1e9beac67a8d1f2d929e41",
+    "created_at": 1776803678
+  }
+]

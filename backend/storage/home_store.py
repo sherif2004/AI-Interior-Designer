@@ -10,11 +10,16 @@ from pathlib import Path
 
 
 DATA_DIR = Path("data")
-HOME_PATH = DATA_DIR / "home.json"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_home() -> dict:
+def _home_path(tenant_id: str = "default") -> Path:
+    t = "".join(c for c in (tenant_id or "default") if c.isalnum() or c in ("-", "_"))[:64] or "default"
+    return DATA_DIR / f"home_{t}.json"
+
+
+def load_home(tenant_id: str = "default") -> dict:
+    HOME_PATH = _home_path(tenant_id)
     if not HOME_PATH.exists():
         return {"id": "default_home", "name": "My Home", "rooms": {}, "connections": []}
     try:
@@ -23,7 +28,8 @@ def load_home() -> dict:
         return {"id": "default_home", "name": "My Home", "rooms": {}, "connections": []}
 
 
-def save_home(home: dict) -> dict:
+def save_home(home: dict, tenant_id: str = "default") -> dict:
+    HOME_PATH = _home_path(tenant_id)
     HOME_PATH.write_text(json.dumps(home, indent=2, ensure_ascii=False), encoding="utf-8")
     return home
 

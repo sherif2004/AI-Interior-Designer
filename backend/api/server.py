@@ -35,7 +35,7 @@ from contextlib import asynccontextmanager
 from typing import Set, Optional
 import math
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -65,10 +65,14 @@ from backend.planner.goal_planner import plan_goal
 from backend.planner.what_if_engine import simulate
 from backend.planner.preference_store import record_signal, get_preference_summary
 from backend.collab.share_manager import create_share, load_share
-from backend.collab.comment_store import add_comment, list_comments
+from backend.collab.comment_store import add_comment, list_comments, update_comment, delete_comment
 from backend.export.material_takeoff import compute_takeoff
 from backend.export.dxf_exporter import export_room_dxf
 from backend.storage.home_store import load_home, save_home
+from backend.storage.tenant_store import resolve_tenant
+from backend.auth.auth_manager import register_user, authenticate_user, create_token, verify_token, list_users_by_tenant
+from backend.storage.migrations import migrate_comments_default_tenant
+from backend.storage.render_jobs import create_render_job, get_render_job
 
 # Phase 4A + 4D — AR & vision
 from backend.vision.live_scanner import scan_frame
@@ -110,6 +114,11 @@ async def _broadcast(state: RoomState):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # one-time compatibility migrations (safe/idempotent)
+    try:
+      migrate_comments_default_tenant()
+    except Exception:
+      pass
     yield
 
 
@@ -205,6 +214,7 @@ class RetailerSearchResponse(BaseModel):
 
 class ShareRequest(BaseModel):
     role: str = "view"
+    ttl_seconds: int = 7 * 24 * 3600
 
 class CommentRequest(BaseModel):
     text: str = ""
@@ -212,6 +222,9 @@ class CommentRequest(BaseModel):
     y: float = 0.0
     z: float = 0.0
     object_id: str = ""
+
+class CommentUpdateRequest(BaseModel):
+    text: str = ""
 
 class HomeAddRoomRequest(BaseModel):
     room_id: str = ""
@@ -221,6 +234,19 @@ class HomeConnectRequest(BaseModel):
     a: str
     b: str
     type: str = "door"
+
+class AuthRegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class RenderVideoRequest(BaseModel):
+    duration_sec: int = 10
+    quality: str = "standard"
 
 
 # ─────────────────────── Helper ─────────────────────────────────────────────
@@ -270,6 +296,50 @@ async def _apply_actions(actions: list) -> int:
     return applied
 
 
+def _tenant_id_from_request(request: Request) -> str:
+    host = request.headers.get("host", "")
+    return str(resolve_tenant(host).get("id") or "default")
+
+
+def _user_from_request(request: Request) -> dict | None:
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    payload = verify_token(token)
+    return payload
+
+
+def _require_auth(request: Request) -> dict:
+    u = _user_from_request(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    tenant_id = _tenant_id_from_request(request)
+    if str(u.get("tenant_id") or "") != tenant_id:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
+    return u
+
+
+def _require_role(request: Request, allowed: set[str]) -> dict:
+    u = _require_auth(request)
+    role = str(u.get("role") or "viewer")
+    if role not in allowed:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return u
+
+
+def _feature_enabled(request: Request, feature_key: str) -> bool:
+    host = request.headers.get("host", "")
+    t = resolve_tenant(host)
+    flags = t.get("feature_flags", {}) or {}
+    return bool(flags.get(feature_key, True))
+
+
+def _require_feature(request: Request, feature_key: str):
+    if not _feature_enabled(request, feature_key):
+        raise HTTPException(status_code=403, detail=f"Service '{feature_key}' disabled for this tenant")
+
+
 # ─────────────────────── Core Routes ────────────────────────────────────────
 
 @app.get("/")
@@ -288,6 +358,65 @@ async def health():
         "accessibility_score": _room_state.get("accessibility_score", 100),
         "clearance_warnings": len(_room_state.get("clearance_warnings", [])),
     }
+
+@app.get("/tenant/config")
+async def tenant_config(request: Request):
+    """
+    Phase 6.0 MVP: resolve tenant by host and return branding + feature flags.
+    """
+    host = request.headers.get("host", "")
+    t = resolve_tenant(host)
+    return {
+        "id": t.get("id"),
+        "name": t.get("name"),
+        "branding": t.get("branding", {}),
+        "feature_flags": t.get("feature_flags", {}),
+    }
+
+
+@app.get("/tenant/services")
+async def tenant_services(request: Request):
+    """
+    Phase 6.0 MVP: service catalog per tenant/site.
+    """
+    host = request.headers.get("host", "")
+    t = resolve_tenant(host)
+    services = t.get("services", [])
+    return {"tenant_id": t.get("id"), "services": services}
+
+
+# ─────────────────────── Phase 6.1: Auth (MVP) ──────────────────────────────
+
+@app.post("/auth/register")
+async def auth_register(req: AuthRegisterRequest, request: Request):
+    tenant_id = _tenant_id_from_request(request)
+    try:
+        # First tenant user becomes owner, subsequent users default to viewer.
+        existing = list_users_by_tenant(tenant_id)
+        role = "owner" if len(existing) == 0 else "viewer"
+        user = register_user(req.email, req.password, tenant_id=tenant_id, name=req.name or "", role=role)
+        token = create_token(user)
+        return {"user": user, "access_token": token, "token_type": "bearer"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/auth/login")
+async def auth_login(req: AuthLoginRequest, request: Request):
+    tenant_id = _tenant_id_from_request(request)
+    user = authenticate_user(req.email, req.password, tenant_id=tenant_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_token(user)
+    return {"user": user, "access_token": token, "token_type": "bearer"}
+
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    u = _user_from_request(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"user": {"id": u.get("sub"), "email": u.get("email"), "name": u.get("name"), "tenant_id": u.get("tenant_id")}}
 
 
 import urllib.request
@@ -424,12 +553,15 @@ async def get_catalog():
 
 @app.get("/products/search")
 async def products_search_multi(
+    request: Request,
     q: str = Query(default="", description="Search query"),
     budget: float = Query(default=0, ge=0, description="Max price"),
     style: str = Query(default="", description="Style hint (optional)"),
     retailers: str = Query(default="ikea", description="Comma-separated retailers: ikea,wayfair,amazon,west_elm"),
     limit: int = Query(default=50, ge=1, le=200),
 ):
+    _require_feature(request, "commerce")
+    _require_auth(request)
     """
     Phase 5.2 MVP: Unified search across retailers.
     Currently returns IKEA results; other retailers are stubs until integrated.
@@ -441,9 +573,12 @@ async def products_search_multi(
 
 @app.get("/products/availability")
 async def products_availability(
+    request: Request,
     ids: str = Query(default="", description="Comma-separated product IDs"),
     retailer: str = Query(default="ikea", description="Retailer name"),
 ):
+    _require_feature(request, "commerce")
+    _require_auth(request)
     """
     Phase 5.2 MVP: Availability checker.
     For IKEA, uses cached in_stock where available; otherwise returns unknown.
@@ -462,7 +597,9 @@ async def products_availability(
 
 
 @app.get("/products/bundle")
-async def products_bundle():
+async def products_bundle(request: Request):
+    _require_feature(request, "commerce")
+    _require_auth(request)
     """
     Phase 5.2 MVP: Bundle suggestions for current room.
     Returns simple category-based recommendations using IKEA catalog.
@@ -488,7 +625,9 @@ async def products_bundle():
 
 
 @app.get("/products/sustainability/{product_id}")
-async def product_sustainability(product_id: str):
+async def product_sustainability(product_id: str, request: Request):
+    _require_feature(request, "commerce")
+    _require_auth(request)
     """
     Phase 5.2 MVP: Sustainability score for a product (heuristic).
     """
@@ -506,30 +645,65 @@ async def get_projects():
 # ─────────────────────── Phase 5.5: Share / Comments / Export ────────────────
 
 @app.post("/share")
-async def share_link(req: ShareRequest):
-    payload = create_share(_state_to_dict(_room_state), role=req.role)
+async def share_link(req: ShareRequest, request: Request):
+    _require_feature(request, "collab")
+    _require_role(request, {"owner", "admin", "editor"})
+    tenant_id = _tenant_id_from_request(request)
+    payload = create_share(_state_to_dict(_room_state), role=req.role, tenant_id=tenant_id, ttl_seconds=req.ttl_seconds)
     return payload
 
 
 @app.get("/share/{token}")
-async def share_load(token: str):
-    row = load_share(token)
+async def share_load(token: str, request: Request):
+    _require_feature(request, "collab")
+    _require_auth(request)
+    tenant_id = _tenant_id_from_request(request)
+    row = load_share(token, tenant_id=tenant_id)
     if not row:
         raise HTTPException(status_code=404, detail="Share token not found")
     return row
 
 
 @app.post("/comments")
-async def comments_add(req: CommentRequest):
+async def comments_add(req: CommentRequest, request: Request):
+    _require_feature(request, "collab")
+    _require_role(request, {"owner", "admin", "editor"})
     if not (req.text or "").strip():
         raise HTTPException(status_code=400, detail="text cannot be empty")
-    row = add_comment(req.text.strip(), req.x, req.y, req.z, object_id=req.object_id or "")
+    tenant_id = _tenant_id_from_request(request)
+    row = add_comment(req.text.strip(), req.x, req.y, req.z, object_id=req.object_id or "", tenant_id=tenant_id)
     return {"success": True, "comment": row}
 
 
 @app.get("/comments")
-async def comments_list():
-    return {"comments": list_comments(), "count": len(list_comments())}
+async def comments_list(request: Request):
+    _require_feature(request, "collab")
+    _require_auth(request)
+    tenant_id = _tenant_id_from_request(request)
+    items = list_comments(tenant_id=tenant_id)
+    return {"comments": items, "count": len(items)}
+
+
+@app.put("/comments/{comment_id}")
+async def comments_update(comment_id: str, req: CommentUpdateRequest, request: Request):
+    _require_feature(request, "collab")
+    _require_role(request, {"owner", "admin", "editor"})
+    tenant_id = _tenant_id_from_request(request)
+    row = update_comment(comment_id, req.text.strip(), tenant_id=tenant_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return {"success": True, "comment": row}
+
+
+@app.delete("/comments/{comment_id}")
+async def comments_delete(comment_id: str, request: Request):
+    _require_feature(request, "collab")
+    _require_role(request, {"owner", "admin", "editor"})
+    tenant_id = _tenant_id_from_request(request)
+    ok = delete_comment(comment_id, tenant_id=tenant_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return {"success": True, "deleted": comment_id}
 
 
 @app.post("/export/pdf")
@@ -566,8 +740,11 @@ async def export_materials():
 # ─────────────────────── Phase 5.6: Multi-room (MVP) ─────────────────────────
 
 @app.post("/home/rooms")
-async def home_add_room(req: HomeAddRoomRequest):
-    home = load_home()
+async def home_add_room(req: HomeAddRoomRequest, request: Request):
+    _require_feature(request, "home")
+    _require_role(request, {"owner", "admin", "editor"})
+    tenant_id = _tenant_id_from_request(request)
+    home = load_home(tenant_id=tenant_id)
     rid = (req.room_id or "").strip() or f"room_{len(home.get('rooms', {})) + 1}"
     rooms = home.get("rooms", {}) or {}
     rooms[rid] = {
@@ -576,26 +753,36 @@ async def home_add_room(req: HomeAddRoomRequest):
         "state": _state_to_dict(_room_state),
     }
     home["rooms"] = rooms
-    save_home(home)
+    save_home(home, tenant_id=tenant_id)
     return {"success": True, "home": home}
 
 
 @app.post("/home/connect")
-async def home_connect(req: HomeConnectRequest):
-    home = load_home()
+async def home_connect(req: HomeConnectRequest, request: Request):
+    _require_feature(request, "home")
+    _require_role(request, {"owner", "admin", "editor"})
+    tenant_id = _tenant_id_from_request(request)
+    home = load_home(tenant_id=tenant_id)
     rooms = home.get("rooms", {}) or {}
     if req.a not in rooms or req.b not in rooms:
         raise HTTPException(status_code=400, detail="Both rooms must exist")
+    if req.a == req.b:
+        raise HTTPException(status_code=400, detail="Cannot connect room to itself")
     conns = home.get("connections", []) or []
+    if any((c.get("a") == req.a and c.get("b") == req.b) or (c.get("a") == req.b and c.get("b") == req.a) for c in conns):
+        raise HTTPException(status_code=400, detail="Connection already exists")
     conns.append({"a": req.a, "b": req.b, "type": req.type})
     home["connections"] = conns
-    save_home(home)
+    save_home(home, tenant_id=tenant_id)
     return {"success": True, "home": home}
 
 
 @app.get("/home/budget")
-async def home_budget():
-    home = load_home()
+async def home_budget(request: Request):
+    _require_feature(request, "home")
+    _require_auth(request)
+    tenant_id = _tenant_id_from_request(request)
+    home = load_home(tenant_id=tenant_id)
     total_low = 0.0
     total_high = 0.0
     per_room = []
@@ -615,11 +802,14 @@ async def home_budget():
 
 
 @app.get("/home/flow")
-async def home_flow():
+async def home_flow(request: Request):
+    _require_feature(request, "home")
+    _require_auth(request)
     """
     MVP traffic flow: return graph stats from connections.
     """
-    home = load_home()
+    tenant_id = _tenant_id_from_request(request)
+    home = load_home(tenant_id=tenant_id)
     conns = home.get("connections", []) or []
     rooms = list((home.get("rooms", {}) or {}).keys())
     degree = {r: 0 for r in rooms}
@@ -628,11 +818,41 @@ async def home_flow():
         if a in degree: degree[a] += 1
         if b in degree: degree[b] += 1
     hotspots = sorted(degree.items(), key=lambda kv: kv[1], reverse=True)[:5]
-    return {"rooms": rooms, "connections": conns, "degree": degree, "hotspots": hotspots}
+    # connected components
+    graph = {r: set() for r in rooms}
+    for c in conns:
+        a, b = c.get("a"), c.get("b")
+        if a in graph and b in graph:
+            graph[a].add(b)
+            graph[b].add(a)
+    visited = set()
+    components = []
+    for r in rooms:
+        if r in visited:
+            continue
+        stack = [r]
+        comp = []
+        while stack:
+            n = stack.pop()
+            if n in visited:
+                continue
+            visited.add(n)
+            comp.append(n)
+            stack.extend(graph.get(n, []))
+        components.append(comp)
+    return {
+        "rooms": rooms,
+        "connections": conns,
+        "degree": degree,
+        "hotspots": hotspots,
+        "components": components,
+        "is_fully_connected": len(components) <= 1,
+    }
 
 
 @app.post("/command")
-async def post_command(req: CommandRequest):
+async def post_command(req: CommandRequest, request: Request):
+    _require_role(request, {"owner", "admin", "editor"})
     global _room_state
     # Support both text commands and structured action/params
     if req.action:
@@ -654,7 +874,9 @@ async def post_command(req: CommandRequest):
         raise HTTPException(status_code=500, detail=f"Command processing failed: {str(e)}")
 
 @app.post("/voice/command")
-async def voice_command(req: VoiceCommandRequest):
+async def voice_command(req: VoiceCommandRequest, request: Request):
+    _require_feature(request, "voice")
+    _require_role(request, {"owner", "admin", "editor"})
     """
     Phase 5.3 (v1): Accept already-transcribed text and execute it like /command.
     (Audio/STT stays planned.)
@@ -674,7 +896,8 @@ async def voice_command(req: VoiceCommandRequest):
 
 
 @app.post("/reset")
-async def reset_room(req: ResetRequest = ResetRequest()):
+async def reset_room(request: Request, req: ResetRequest = ResetRequest()):
+    _require_role(request, {"owner", "admin", "editor"})
     global _room_state
     _room_state = default_state(req.width, req.height)
     await _broadcast(_room_state)
@@ -682,7 +905,8 @@ async def reset_room(req: ResetRequest = ResetRequest()):
 
 
 @app.post("/select")
-async def select_object(req: SelectionRequest):
+async def select_object(req: SelectionRequest, request: Request):
+    _require_auth(request)
     global _room_state
     _room_state = {
         **_room_state,
@@ -696,7 +920,9 @@ async def select_object(req: SelectionRequest):
 
 
 @app.post("/products/place")
-async def place_product(req: PlaceProductRequest):
+async def place_product(req: PlaceProductRequest, request: Request):
+    _require_feature(request, "catalog")
+    _require_role(request, {"owner", "admin", "editor"})
     global _room_state
     product = get_product_by_id(req.productId)
     if not product:
@@ -774,7 +1000,11 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "command":
-                    await post_command(CommandRequest(command=msg.get("command", "")))
+                    command_text = str(msg.get("command", "")).strip()
+                    if command_text:
+                        new_state = await asyncio.to_thread(run_command, command_text, _room_state)
+                        globals()["_room_state"] = new_state
+                        await _broadcast(_room_state)
             except Exception:
                 pass
     except WebSocketDisconnect:
@@ -922,15 +1152,23 @@ async def render_room():
         raise HTTPException(status_code=500, detail=f"Render failed: {str(e)}")
 
 @app.post("/render/video")
-async def render_video():
+async def render_video(req: RenderVideoRequest, request: Request):
     """
-    Phase 5.4 MVP: Video export is implemented client-side (MediaRecorder) for now.
-    This endpoint exists for forward compatibility.
+    Phase 5.4: enqueue a render video job and return job metadata.
+    Server-side renderer remains queued (client-side recording fallback available).
     """
-    return {
-        "success": False,
-        "note": "Video export is client-side in this MVP. Use the Record button in the UI.",
-    }
+    _require_auth(request)
+    job = create_render_job({"duration_sec": req.duration_sec, "quality": req.quality})
+    return {"success": True, "job": job}
+
+
+@app.get("/render/video/{job_id}")
+async def render_video_status(job_id: str, request: Request):
+    _require_auth(request)
+    row = get_render_job(job_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Render job not found")
+    return row
 
 
 @app.get("/render/prompt")

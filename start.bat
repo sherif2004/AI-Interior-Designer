@@ -17,9 +17,9 @@ if not exist "backend\.env" (
 )
 
 echo  [+] Starting FastAPI backend on http://localhost:8000 ...
-echo  [+] Frontend available at http://localhost:8000
+echo  [+] Starting React Frontend (Vite) on http://localhost:5173 ...
 echo.
-echo  Press Ctrl+C to stop.
+echo  Press Ctrl+C to stop the backend.
 echo.
 
 :: Initialize IKEA Database if missing
@@ -32,5 +32,9 @@ if not exist "data\ikea_catalog.db" (
     echo.
 )
 
-:: Start backend (serves frontend from /)
+:: Start Vite React Frontend in a new window
+echo  [*] Spawning React Dev Server...
+start "AI Interior Designer - Frontend" cmd /c "cd frontend-react && npm run dev"
+
+:: Start backend
 D:\anaconda\python.exe -m uvicorn backend.api.server:app --reload --host 0.0.0.0 --port 8000

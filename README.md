@@ -31,16 +31,13 @@ This transforms the LLM from a passive generator into an **active goal-driven de
 
 ---
 
-## 🆕 Recent Updates (UI + Phase 5.1/5.3 v1)
+## 🆕 Recent Updates (React SPA Migration + Phases 5.1–6.1)
 
-### Planner5D-like UI (polish)
-
-- **Consistent `p5d-*` workspace styling** (topbar, left rail, panels, canvas, right panel)
-- **Inspector panel** (right): shows selected object + quick focus control
-- New left-panel tabs:
-  - **📷 Room Scan** (photo preview/apply)
-  - **🎙️ Voice** (Web Speech API → text commands)
-  - **✏️ Sketch** (draw → preview/apply)
+### ⚛️ React Multi-Page Application (SPA) Migration
+The frontend has been entirely rewritten into a modern **Vite + React** multi-page platform (`/frontend-react`) branded as **AI Interior Design**. 
+- **Dual Customization Controls**: The editor features manual inputs (dropdowns, sliders, color pickers) for room dimensions, shapes, and finishes. Every manual action seamlessly dispatches a natural language command (e.g., `"Set wall material to brick"`) to the AI backend, ensuring perfect synchronization between manual UI editing and the AI Chat prompt.
+- **Native 3D GLB Rendering**: Integrated `GLTFLoader` natively into the React Three.js workflow to pull and render life-size `.glb` IKEA models dynamically based on the catalog SQLite database.
+- **Multi-Page Routing**: Clean separation of workspaces including a Hero Landing Page, Editor, Catalog Grid, and Projects dashboard.
 
 ### Phase 5.1 (v1) — Photo scan → RoomState
 
@@ -54,6 +51,21 @@ This transforms the LLM from a passive generator into an **active goal-driven de
 - `POST /voice/command` *(JSON `{text, session_id}`)* executes already-transcribed commands (text-only v1).
 - **Sketch**: `frontend/js/sketch_input.js` provides a simple sketch canvas modal.
 - `POST /import/sketch?apply=0|1` *(JSON `{image: <dataURL/base64>}`)* returns scan/actions, and optionally applies them.
+
+### Phase 5.2/5.4/5.5/5.6 (implemented in this system)
+
+- Commerce: multi-retailer unified search contracts, availability/bundle/sustainability APIs.
+- Visualization: first-person walkthrough + video recording fallback + render-video job endpoints.
+- Collaboration & export: share links (expiry), comments lifecycle, DXF/material exports.
+- Whole-home: multi-room HomeState with graph checks, flow components, and aggregate home budget.
+
+### Phase 6.0/6.1 (multi-site + auth)
+
+- Multi-site tenant resolution by host/domain with tenant config + service catalog APIs.
+- Tenant feature flags enforced in backend and reflected in frontend.
+- Auth: register/login/me with bearer tokens.
+- Tenant-scoped data isolation for comments, shares, and home state.
+- Desktop wrapper scaffold (`desktop-shell/`) and PWA baseline (`manifest.webmanifest`, `sw.js`).
 
 ---
 
@@ -662,6 +674,13 @@ GET  /home/budget
 | 📱 Mobile-native app | React Native / Expo for iOS + Android (unlocks full ARKit + ARCore) |
 | 🔔 Push notifications | "Your saved product is now on sale" alerts |
 
+### Multi-platform / service status (current)
+
+- **Web + mobile browser:** responsive single app with touch-friendly workflows.
+- **PWA baseline:** installable web app support via manifest + service worker.
+- **Desktop:** Electron wrapper scaffold in `desktop-shell/`.
+- **Service-oriented multi-site:** tenant config + service flags from `/tenant/config` and `/tenant/services`.
+
 ### 🌐 Community & Social
 
 | Feature | Description |
@@ -917,6 +936,19 @@ Every item includes: `size`, `color`, `height`, `price_low`, `price_high`, `weig
 | `POST` | `/home/connect` | Connect two rooms |
 | `GET` | `/home/flow` | Traffic flow analysis |
 | `GET` | `/home/budget` | Whole-home aggregate budget |
+
+### Phase 6.0 / 6.1 (Implemented)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/tenant/config` | Resolve tenant by host and return branding/feature flags |
+| `GET` | `/tenant/services` | Tenant service catalog |
+| `POST` | `/auth/register` | Register user for current tenant (first user becomes owner) |
+| `POST` | `/auth/login` | Login for current tenant |
+| `GET` | `/auth/me` | Current authenticated user from bearer token |
+| `GET` | `/render/video/{job_id}` | Render video job status |
+| `PUT` | `/comments/{comment_id}` | Update comment text |
+| `DELETE` | `/comments/{comment_id}` | Delete comment |
 
 ---
 
@@ -1187,12 +1219,12 @@ Find a similar sofa but under $300
 | Phase 4C | ✅ Complete | Professional 2D drag-and-drop floor plan editor | **Planner 5D** |
 | Phase 4D | ✅ Complete | Life-size 1:1 product AR + product-first shopping | **IKEA Place** |
 | Phase 5.1 | ✅ v1 Complete | Room photo → state import (preview/apply) | — |
-| Phase 5.2 | 📋 Planned | Multi-retailer commerce engine | — |
+| Phase 5.2 | ✅ MVP Implemented | Multi-retailer commerce engine | — |
 | Phase 5.3 | ✅ v1 Complete | Voice (Web Speech transcript) + Sketch import (v1) | — |
-| Phase 5.4 | 📋 Planned | First-person walkthrough + video export | — |
-| Phase 5.5 | 📋 Planned | Collaboration + professional export | Planner 5D Pro |
-| Phase 5.6 | 📋 Planned | Multi-room + whole-home planning | Planner 5D |
-| Phase 6 | 🔭 Vision | User accounts, cloud sync, community | — |
+| Phase 5.4 | ✅ MVP Implemented | First-person walkthrough + video export | — |
+| Phase 5.5 | ✅ MVP Implemented | Collaboration + professional export | Planner 5D Pro |
+| Phase 5.6 | ✅ MVP Implemented | Multi-room + whole-home planning | Planner 5D |
+| Phase 6 | ✅ 6.0/6.1 Implemented | Multi-site tenant config + auth foundation | — |
 
 ---
 

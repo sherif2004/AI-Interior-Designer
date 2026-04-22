@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Interior Designer</title>
   <meta name="description" content="Professional SaaS AI Home Planner" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="data:," />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,7 +17,7 @@
   <!-- TOP TOOLBAR -->
   <header class="p5d-topbar">
     <div class="p5d-brand">
-      <span class="icon">🏠</span> Planner 5D AI
+      <span class="icon">🏠</span> <span id="brand-title">Planner 5D AI</span>
     </div>
     
     <div class="p5d-center-tools">
@@ -32,6 +33,7 @@
     <div class="p5d-right-tools">
       <span id="llm-status" class="tool-badge"><span id="llm-dot" class="dot"></span> <span id="llm-label">LLM...</span></span>
       <span id="ws-status" class="tool-badge"><span class="dot"></span> <span id="ws-label">WS...</span></span>
+      <button id="btn-auth" class="btn btn-outline" title="Sign in">Sign In</button>
       <button id="btn-ar" class="btn btn-accent ar-btn" style="display:none;" title="View in AR">📱 AR</button>
       <span id="ar-hint" class="ar-hint" style="display:none">📱 AR Ready</span>
       <button id="btn-render" class="btn btn-primary">✨ AI Render</button>
@@ -92,8 +94,9 @@
           <input id="commerce-q" placeholder="Search products (e.g. sofa under 300)..." />
           <button id="btn-commerce-search">🔍</button>
         </div>
-        <div class="detail-row"><span>Retailers</span> <span class="mono" id="commerce-retailers">ikea</span></div>
-        <div class="detail-row"><span>Budget</span> <span class="mono" id="commerce-budget">$0</span></div>
+        <div class="p5d-search"><input id="commerce-style" placeholder="Style (minimalist, industrial...)" /></div>
+        <div class="p5d-search"><input id="commerce-budget-input" type="number" min="0" step="1" placeholder="Budget (USD)" /></div>
+        <div class="p5d-search"><input id="commerce-retailers-input" placeholder="Retailers: ikea,wayfair,amazon,west_elm" value="ikea,wayfair,amazon,west_elm" /></div>
         <div id="commerce-results" class="products-container"></div>
       </div>
 
@@ -264,6 +267,27 @@
   <div class="loading-overlay" id="loading-overlay" style="display:none;">
     <div class="spinner"></div>
     <span class="loading-text">Processing...</span>
+  </div>
+
+  <!-- Auth Modal -->
+  <div class="p5d-modal-overlay" id="auth-modal" style="display:none;">
+    <div class="p5d-modal" style="max-width:520px;">
+      <div class="p5d-modal-header">
+        <div class="p5d-modal-title">Sign in</div>
+        <button class="btn btn-outline" id="btn-auth-close">Close</button>
+      </div>
+      <div class="p5d-modal-body">
+        <div class="p5d-search" style="margin:0 0 10px 0;"><input id="auth-email" type="email" placeholder="Email" /></div>
+        <div class="p5d-search" style="margin:0 0 10px 0;"><input id="auth-password" type="password" placeholder="Password" /></div>
+        <div class="p5d-search" style="margin:0 0 10px 0;"><input id="auth-name" placeholder="Name (for register)" /></div>
+        <div class="panel-actions">
+          <button class="btn btn-primary w-full" id="btn-auth-login">Login</button>
+          <button class="btn btn-outline w-full mt-2" id="btn-auth-register">Register</button>
+          <button class="btn btn-danger w-full mt-2" id="btn-auth-logout">Logout</button>
+        </div>
+        <div id="auth-status" class="status-msg mt-4"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Scripts -->

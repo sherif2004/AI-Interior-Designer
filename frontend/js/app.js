@@ -13,13 +13,15 @@ import {
 import { FURNITURE_EMOJIS } from './furniture.js';
 import {
   sendCommand, resetRoom, getCatalog, getProjects, getState, createWebSocket, checkLLMStatus,
+  getTenantConfig, getTenantServices,
   getMeasurements, getBudget,
   saveVersion, getVersions, getVersionDiff, deleteVersion as apiDeleteVersion,
   renderRoom, importBlueprint, getProducts, getRoomProducts, placeProduct, selectObject,
   importPhotoPreview, importPhoto, importSketch,
   multiRetailerSearch, createShare, listComments, addComment,
   exportDxf, exportMaterials,
-  homeAddRoom, homeBudget, homeFlow
+  homeAddRoom, homeBudget, homeFlow,
+  authLogin, authRegister, authMe, authLogout
 } from './api.js';
 import { initVersionsPanel, refreshVersionsList } from './versions.js';
 import { initAR } from './ar.js';
@@ -87,6 +89,9 @@ const btnRecord = document.getElementById('btn-record');
 
 // Phase 5.2 commerce
 const commerceQ = document.getElementById('commerce-q');
+const commerceStyle = document.getElementById('commerce-style');
+const commerceBudgetInput = document.getElementById('commerce-budget-input');
+const commerceRetailersInput = document.getElementById('commerce-retailers-input');
 const btnCommerceSearch = document.getElementById('btn-commerce-search');
 const commerceResults = document.getElementById('commerce-results');
 
@@ -105,6 +110,17 @@ const btnHomeAddRoom = document.getElementById('btn-home-add-room');
 const btnHomeBudget = document.getElementById('btn-home-budget');
 const btnHomeFlow = document.getElementById('btn-home-flow');
 const homeStatus = document.getElementById('home-status');
+const btnAuth = document.getElementById('btn-auth');
+const authModal = document.getElementById('auth-modal');
+const btnAuthClose = document.getElementById('btn-auth-close');
+const authEmail = document.getElementById('auth-email');
+const authPassword = document.getElementById('auth-password');
+const authName = document.getElementById('auth-name');
+const btnAuthLogin = document.getElementById('btn-auth-login');
+const btnAuthRegister = document.getElementById('btn-auth-register');
+const btnAuthLogout = document.getElementById('btn-auth-logout');
+const authStatus = document.getElementById('auth-status');
+const brandTitleEl = document.getElementById('brand-title');
 
 // Inspector (right panel)
 const inspectorSelected = document.getElementById('inspector-selected');
@@ -134,9 +150,28 @@ const sketchStatusEl = document.getElementById('sketch-status');
 
 // ─────────────────────── Init ────────────────────────────────────────────────
 async function init() {
+  // PWA registration
+  try {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  } catch {}
+
   initScene(canvas3d);
 
+  // Phase 6.0 multisite: tenant-aware branding + features
+  try {
+    const cfg = await getTenantConfig();
+    applyTenantConfig(cfg || {});
+    // Optional: can be shown in a future services panel
+    await getTenantServices();
+  } catch {}
+
   try { catalog = await getCatalog(); renderCatalog(catalog); } catch {}
+  try {
+    const me = await authMe();
+    if (btnAuth) btnAuth.textContent = me?.user?.email ? me.user.email : 'Sign In';
+  } catch {}
   checkLLM();
   refreshProjectsList();
 
@@ -170,6 +205,44 @@ async function init() {
     },
     onApplied: (state) => applyState(state),
   });
+}
+
+function applyTenantConfig(cfg) {
+  const branding = cfg?.branding || {};
+  const flags = cfg?.feature_flags || {};
+  const appTitle = branding.app_title || cfg?.name || 'AI Interior Designer';
+  if (brandTitleEl) brandTitleEl.textContent = appTitle;
+  if (appTitle) document.title = appTitle;
+  if (branding.meta_description) {
+    const md = document.querySelector('meta[name="description"]');
+    if (md) md.setAttribute('content', branding.meta_description);
+  }
+
+  // Show/hide panels by tenant feature flags
+  const panelMap = {
+    catalog: 'panel-products',
+    commerce: 'panel-commerce',
+    versions: 'panel-versions',
+    blueprint: 'panel-blueprint',
+    scan: 'panel-scan',
+    voice: 'panel-voice',
+    sketch: 'panel-sketch',
+    collab: 'panel-collab',
+    home: 'panel-home',
+  };
+  Object.entries(panelMap).forEach(([flag, panelId]) => {
+    if (!(flag in flags)) return;
+    const enabled = !!flags[flag];
+    const tab = document.querySelector(`.side-tab[data-panel="${panelId}"]`);
+    const panel = document.getElementById(panelId);
+    if (tab) tab.style.display = enabled ? '' : 'none';
+    if (panel) panel.style.display = enabled ? '' : 'none';
+  });
+
+  if ('ar' in flags) {
+    const arBtn = document.getElementById('btn-ar');
+    if (arBtn && !flags.ar) arBtn.style.display = 'none';
+  }
 }
 
 function bindEvents() {
@@ -290,7 +363,13 @@ function bindEvents() {
       if (!q) return;
       try {
         showLoading(true, 'Searching…');
-        const res = await multiRetailerSearch({ q, retailers: 'ikea', limit: 40 });
+        const res = await multiRetailerSearch({
+          q,
+          style: (commerceStyle?.value || '').trim(),
+          budget: Number(commerceBudgetInput?.value || 0) || 0,
+          retailers: (commerceRetailersInput?.value || 'ikea').trim(),
+          limit: 60,
+        });
         renderCommerceResults(res.products || []);
       } catch (e) {
         if (commerceResults) commerceResults.textContent = `Search failed: ${e.message}`;
@@ -473,6 +552,37 @@ function bindEvents() {
       controls.update();
     });
   }
+
+  // Phase 6.1 auth modal
+  if (btnAuth) btnAuth.addEventListener('click', () => { if (authModal) authModal.style.display = 'flex'; });
+  if (btnAuthClose) btnAuthClose.addEventListener('click', () => { if (authModal) authModal.style.display = 'none'; });
+  if (btnAuthLogin) btnAuthLogin.addEventListener('click', async () => {
+    try {
+      const out = await authLogin({ email: authEmail?.value || '', password: authPassword?.value || '' });
+      if (btnAuth) btnAuth.textContent = out?.user?.email || 'Signed In';
+      if (authStatus) authStatus.textContent = `Logged in as ${out?.user?.email || ''}`;
+    } catch (e) {
+      if (authStatus) authStatus.textContent = `Login failed: ${e.message}`;
+    }
+  });
+  if (btnAuthRegister) btnAuthRegister.addEventListener('click', async () => {
+    try {
+      const out = await authRegister({
+        email: authEmail?.value || '',
+        password: authPassword?.value || '',
+        name: authName?.value || '',
+      });
+      if (btnAuth) btnAuth.textContent = out?.user?.email || 'Signed In';
+      if (authStatus) authStatus.textContent = `Registered ${out?.user?.email || ''}`;
+    } catch (e) {
+      if (authStatus) authStatus.textContent = `Register failed: ${e.message}`;
+    }
+  });
+  if (btnAuthLogout) btnAuthLogout.addEventListener('click', () => {
+    authLogout();
+    if (btnAuth) btnAuth.textContent = 'Sign In';
+    if (authStatus) authStatus.textContent = 'Logged out';
+  });
 }
 
 function showLoading(show, text = 'Processing…') {

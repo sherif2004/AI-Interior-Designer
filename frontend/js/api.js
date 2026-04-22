@@ -4,11 +4,28 @@
  */
 
 const BASE = '';
+const AUTH_KEY = 'aid_auth_token';
+
+function _authToken() {
+  try { return localStorage.getItem(AUTH_KEY) || ''; } catch { return ''; }
+}
+function _headers(extra = {}) {
+  const h = { ...extra };
+  const t = _authToken();
+  if (t) h.Authorization = `Bearer ${t}`;
+  return h;
+}
+export function setAuthToken(token) {
+  try {
+    if (token) localStorage.setItem(AUTH_KEY, token);
+    else localStorage.removeItem(AUTH_KEY);
+  } catch {}
+}
 
 async function _post(path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: _headers({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -19,13 +36,13 @@ async function _post(path, body) {
 }
 
 async function _get(path) {
-  const res = await fetch(`${BASE}${path}`);
+  const res = await fetch(`${BASE}${path}`, { headers: _headers() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 async function _delete(path) {
-  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' });
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: _headers() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -38,6 +55,8 @@ export async function resetRoom(width = 10, height = 8) { return _post('/reset',
 export async function getCatalog() { return _get('/products?limit=50'); }
 export async function getProjects() { return _get('/projects'); }
 export async function checkLLMStatus() { return _get('/llm-status'); }
+export async function getTenantConfig() { return _get('/tenant/config'); }
+export async function getTenantServices() { return _get('/tenant/services'); }
 
 // ─────────────────────── Phase 2: Measurements ──────────────────────────────
 
@@ -65,7 +84,7 @@ export async function getRenderPrompt() { return _get('/render/prompt'); }
 export async function importBlueprint(file) {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${BASE}/import/blueprint`, { method: 'POST', body: form });
+  const res = await fetch(`${BASE}/import/blueprint`, { method: 'POST', body: form, headers: _headers() });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `HTTP ${res.status}`);
@@ -78,7 +97,7 @@ export async function importBlueprint(file) {
 async function _postFile(path, file) {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${BASE}${path}`, { method: 'POST', body: form });
+  const res = await fetch(`${BASE}${path}`, { method: 'POST', body: form, headers: _headers() });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `HTTP ${res.status}`);
@@ -135,10 +154,25 @@ export async function addComment({ text, x = 0, y = 0, z = 0, object_id = '' }) 
 
 export async function exportMaterials() { return _get('/export/materials'); }
 export async function exportDxf() {
-  const res = await fetch(`${BASE}/export/dxf`, { method: 'POST' });
+  const res = await fetch(`${BASE}/export/dxf`, { method: 'POST', headers: _headers() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();
 }
+
+// ─────────────────────── Phase 6.1: Auth ────────────────────────────────────
+
+export async function authRegister({ email, password, name = '' }) {
+  const out = await _post('/auth/register', { email, password, name });
+  if (out?.access_token) setAuthToken(out.access_token);
+  return out;
+}
+export async function authLogin({ email, password }) {
+  const out = await _post('/auth/login', { email, password });
+  if (out?.access_token) setAuthToken(out.access_token);
+  return out;
+}
+export async function authMe() { return _get('/auth/me'); }
+export function authLogout() { setAuthToken(''); }
 
 // ─────────────────────── Phase 5.6: Home (Multi-room) ───────────────────────
 

@@ -1,0 +1,41 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    proxy: {
+      '/command':   'http://localhost:8000',
+      '/state':     'http://localhost:8000',
+      '/reset':     'http://localhost:8000',
+      '/catalog':   'http://localhost:8000',
+      '/products':  'http://localhost:8000',
+      '/health':    'http://localhost:8000',
+      '/llm-status':'http://localhost:8000',
+      '/budget':    'http://localhost:8000',
+      '/measurements':'http://localhost:8000',
+      '/versions':  'http://localhost:8000',
+      '/render':    'http://localhost:8000',
+      '/import':    'http://localhost:8000',
+      '/projects':  'http://localhost:8000',
+      '/select':    'http://localhost:8000',
+      '/score':     'http://localhost:8000',
+      '/zones':     'http://localhost:8000',
+      '/goal':      'http://localhost:8000',
+      '/simulate':  'http://localhost:8000',
+      '/autofix':   'http://localhost:8000',
+      '/scan':      'http://localhost:8000',
+      '/ar':        'http://localhost:8000',
+      '/img':       'http://localhost:8000',
+      '/voice':     'http://localhost:8000',
+      '/style':     'http://localhost:8000',
+      '/share':     'http://localhost:8000',
+      '/comments':  'http://localhost:8000',
+      '/export':    'http://localhost:8000',
+      '/home':      'http://localhost:8000',
+      '/auth':      'http://localhost:8000',
+      '/tenant':    'http://localhost:8000',
+    },
+  },
+})
